@@ -31,6 +31,7 @@ if [ -d "$HOME/.pyenv" ]; then
   path_prepend "$PYENV_ROOT/bin"
 fi
 export PATH
+export SSH_AUTH_SOCK="$HOME/.1password/agent.sock"
 
 if [ -x /usr/bin/lesspipe ]; then
   eval "$(SHELL=/bin/sh lesspipe)"

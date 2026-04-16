@@ -145,15 +145,21 @@ bootstrap() {
   # 1Password SSH agent socket
   mkdir -p "$HOME/.1password"
   if [ "$OS" = "Darwin" ]; then
+    # macOS: 1Password uses a deep path, symlink it to a stable location
     local op_sock="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+    ln -sfn "$op_sock" "$HOME/.1password/agent.sock"
+    if [ -e "$op_sock" ] || [ -S "$op_sock" ]; then
+      say "linked 1Password SSH agent socket"
+    else
+      warn "1Password SSH agent socket not found at $op_sock"
+    fi
   else
-    local op_sock="$CONFIG_HOME/1Password/ssh/agent.sock"
-  fi
-  ln -sfn "$op_sock" "$HOME/.1password/agent.sock"
-  if [ -e "$op_sock" ] || [ -S "$op_sock" ]; then
-    say "linked 1Password SSH agent socket"
-  else
-    warn "1Password SSH agent socket not found at $op_sock"
+    # Linux: 1Password creates the socket directly at ~/.1password/agent.sock
+    if [ -S "$HOME/.1password/agent.sock" ]; then
+      say "1Password SSH agent socket is active"
+    else
+      warn "1Password SSH agent socket not found — enable it in 1Password > Settings > Developer"
+    fi
   fi
 
   if command -v chezmoi >/dev/null 2>&1 && [ -d "$CHEZMOI_SOURCE_DIR" ]; then
