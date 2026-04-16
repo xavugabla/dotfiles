@@ -1,0 +1,12 @@
+[Unit]
+Description=Fetch and prune active development repositories
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=%h/.local/bin/dev
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/dev git-sync --quiet
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

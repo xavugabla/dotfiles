@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+if [ -x /usr/bin/delta ]; then
+  exec /usr/bin/delta "$@"
+fi
+cat

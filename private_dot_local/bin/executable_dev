@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
+
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+DEV_HOME="$CONFIG_HOME/dev"
+ACTIVE_REPOS_FILE="$DEV_HOME/active-repos.txt"
+ONEPASSWORD_HOME="$DEV_HOME/1password"
+CHEZMOI_SOURCE_DIR="${CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  dev bootstrap
+  dev repos list
+  dev repos add <repo-or-path> [...]
+  dev repos remove <repo-or-path> [...]
+  dev git-sync [--quiet]
+  dev secrets sync <service|all>
+EOF
+}
+
+say() {
+  printf '%s\n' "$*"
+}
+
+warn() {
+  printf 'warning: %s\n' "$*" >&2
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+canonicalize_path() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$1"
+  else
+    readlink -f "$1"
+  fi
+}
+
+ensure_active_repos_file() {
+  mkdir -p "$DEV_HOME"
+  touch "$ACTIVE_REPOS_FILE"
+}
+
+iter_active_repos() {
+  ensure_active_repos_file
+  while IFS= read -r repo || [ -n "$repo" ]; do
+    case "$repo" in
+      ''|\#*) continue ;;
+    esac
+    printf '%s\n' "$repo"
+  done <"$ACTIVE_REPOS_FILE"
+}
+
+resolve_repo() {
+  local input="$1"
+  local candidate
+
+  if [ -d "$input/.git" ]; then
+    canonicalize_path "$input"
+    return 0
+  fi
+
+  candidate="$HOME/projects/$input"
+  if [ -d "$candidate/.git" ]; then
+    canonicalize_path "$candidate"
+    return 0
+  fi
+
+  die "repo not found: $input"
+}
+
+list_repos() {
+  iter_active_repos
+}
+
+add_repos() {
+  local repo resolved tmp
+  [ "$#" -gt 0 ] || die "dev repos add requires at least one repo"
+  ensure_active_repos_file
+  tmp=$(mktemp)
+  cp "$ACTIVE_REPOS_FILE" "$tmp"
+
+  for repo in "$@"; do
+    resolved=$(resolve_repo "$repo")
+    if ! grep -Fxq "$resolved" "$tmp"; then
+      printf '%s\n' "$resolved" >>"$tmp"
+      say "tracked: $resolved"
+    fi
+  done
+
+  sort -u "$tmp" >"$ACTIVE_REPOS_FILE"
+  rm -f "$tmp"
+}
+
+remove_repos() {
+  local repo resolved tmp
+  [ "$#" -gt 0 ] || die "dev repos remove requires at least one repo"
+  ensure_active_repos_file
+  tmp=$(mktemp)
+  cp "$ACTIVE_REPOS_FILE" "$tmp"
+
+  for repo in "$@"; do
+    if resolved=$(resolve_repo "$repo" 2>/dev/null); then
+      :
+    else
+      resolved="$repo"
+    fi
+    grep -Fvx "$resolved" "$tmp" >"${tmp}.next" || true
+    mv "${tmp}.next" "$tmp"
+    say "untracked: $resolved"
+  done
+
+  mv "$tmp" "$ACTIVE_REPOS_FILE"
+}
+
+bootstrap() {
+  local required optional missing=()
+
+  for required in git gh ssh jq timeout systemctl; do
+    command -v "$required" >/dev/null 2>&1 || missing+=("$required")
+  done
+
+  if [ "${#missing[@]}" -gt 0 ]; then
+    warn "missing required tools: ${missing[*]}"
+  fi
+
+  for optional in chezmoi direnv delta fzf zoxide op; do
+    if ! command -v "$optional" >/dev/null 2>&1; then
+      warn "missing optional tool: $optional"
+    fi
+  done
+
+  mkdir -p "$HOME/.1password"
+  ln -sfn "$CONFIG_HOME/1Password/ssh/agent.sock" "$HOME/.1password/agent.sock"
+  if [ -e "$CONFIG_HOME/1Password/ssh/agent.sock" ] || [ -S "$CONFIG_HOME/1Password/ssh/agent.sock" ]; then
+    say "linked 1Password SSH agent socket"
+  else
+    warn "1Password SSH agent socket not found at $CONFIG_HOME/1Password/ssh/agent.sock"
+  fi
+
+  if command -v chezmoi >/dev/null 2>&1 && [ -d "$CHEZMOI_SOURCE_DIR" ]; then
+    chezmoi apply --source="$CHEZMOI_SOURCE_DIR"
+    say "applied chezmoi source"
+  else
+    warn "chezmoi source not applied"
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload
+    systemctl --user enable --now dev-git-fetch.timer
+    say "reloaded user-systemd and enabled dev-git-fetch.timer"
+  fi
+}
+
+git_sync() {
+  local quiet=0 repo ok=0 skipped=0 failed=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --quiet) quiet=1 ;;
+      *) die "unknown git-sync flag: $1" ;;
+    esac
+    shift
+  done
+
+  while IFS= read -r repo; do
+    if [ ! -d "$repo/.git" ]; then
+      skipped=$((skipped + 1))
+      [ "$quiet" -eq 1 ] || warn "skipping missing repo: $repo"
+      continue
+    fi
+
+    if ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
+      skipped=$((skipped + 1))
+      [ "$quiet" -eq 1 ] || warn "skipping repo without origin: $repo"
+      continue
+    fi
+
+    if timeout 180 git -C "$repo" fetch --all --prune --tags --quiet; then
+      ok=$((ok + 1))
+      [ "$quiet" -eq 1 ] || say "synced: $repo"
+    else
+      failed=$((failed + 1))
+      warn "sync failed: $repo"
+    fi
+  done < <(iter_active_repos)
+
+  [ "$quiet" -eq 1 ] || say "summary: ok=$ok skipped=$skipped failed=$failed"
+  [ "$failed" -eq 0 ]
+}
+
+sync_secret() {
+  local service="$1"
+  local template="$ONEPASSWORD_HOME/${service}.env.tpl"
+  local target_file="$ONEPASSWORD_HOME/${service}.target"
+  local target tmp
+
+  command -v op >/dev/null 2>&1 || die "1Password CLI is not installed"
+  [ -f "$template" ] || die "template not found: $template"
+
+  if [ -f "$target_file" ]; then
+    target=$(<"$target_file")
+  else
+    target="$CONFIG_HOME/$service/$service.env"
+  fi
+
+  mkdir -p "$(dirname "$target")"
+  tmp=$(mktemp)
+  op inject -i "$template" >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$target"
+  chmod 600 "$target"
+  say "rendered secrets: $service -> $target"
+}
+
+sync_secrets() {
+  local service
+  [ "$#" -eq 1 ] || die "dev secrets sync requires a service name or 'all'"
+
+  if [ "$1" = all ]; then
+    shopt -s nullglob
+    for service in "$ONEPASSWORD_HOME"/*.env.tpl; do
+      service=${service##*/}
+      service=${service%.env.tpl}
+      sync_secret "$service"
+    done
+    shopt -u nullglob
+    return 0
+  fi
+
+  sync_secret "$1"
+}
+
+main() {
+  [ "$#" -gt 0 ] || {
+    usage
+    exit 1
+  }
+
+  case "$1" in
+    bootstrap)
+      shift
+      [ "$#" -eq 0 ] || die "dev bootstrap takes no extra arguments"
+      bootstrap
+      ;;
+    repos)
+      shift
+      case "${1:-}" in
+        list)
+          shift
+          [ "$#" -eq 0 ] || die "dev repos list takes no extra arguments"
+          list_repos
+          ;;
+        add)
+          shift
+          add_repos "$@"
+          ;;
+        remove)
+          shift
+          remove_repos "$@"
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+      ;;
+    git-sync)
+      shift
+      git_sync "$@"
+      ;;
+    secrets)
+      shift
+      case "${1:-}" in
+        sync)
+          shift
+          sync_secrets "$@"
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

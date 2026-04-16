@@ -1,0 +1,131 @@
+# ~/.bashrc: interactive shell configuration.
+
+case $- in
+  *i*) ;;
+  *) return ;;
+esac
+
+HISTCONTROL=ignoreboth:erasedups
+HISTSIZE=5000
+HISTFILESIZE=20000
+HISTIGNORE='ls:ll:l:la:pwd:clear:history:exit'
+
+shopt -s histappend
+shopt -s checkwinsize
+
+PROMPT_COMMAND="history -a; history -n${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+
+path_prepend() {
+  [ -d "$1" ] || return 0
+  case ":$PATH:" in
+    *":$1:"*) ;;
+    *) PATH="$1${PATH:+:$PATH}" ;;
+  esac
+}
+
+path_prepend "$HOME/.local/bin"
+path_prepend "$HOME/bin"
+
+if [ -d "$HOME/.pyenv" ]; then
+  export PYENV_ROOT="$HOME/.pyenv"
+  path_prepend "$PYENV_ROOT/bin"
+fi
+export PATH
+
+if [ -x /usr/bin/lesspipe ]; then
+  eval "$(SHELL=/bin/sh lesspipe)"
+fi
+
+if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+  debian_chroot=$(cat /etc/debian_chroot)
+fi
+
+case "$TERM" in
+  xterm-color|*-256color) color_prompt=yes ;;
+esac
+
+if [ -n "${force_color_prompt:-}" ]; then
+  if [ -x /usr/bin/tput ] && tput setaf 1 >/dev/null 2>&1; then
+    color_prompt=yes
+  else
+    color_prompt=
+  fi
+fi
+
+if [ "${color_prompt:-}" = yes ]; then
+  PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+else
+  PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+fi
+unset color_prompt force_color_prompt
+
+case "$TERM" in
+  xterm*|rxvt*)
+    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
+    ;;
+esac
+
+if [ -x /usr/bin/dircolors ]; then
+  if [ -r "$HOME/.dircolors" ]; then
+    eval "$(dircolors -b "$HOME/.dircolors")"
+  else
+    eval "$(dircolors -b)"
+  fi
+  alias ls='ls --color=auto'
+  alias grep='grep --color=auto'
+  alias fgrep='fgrep --color=auto'
+  alias egrep='egrep --color=auto'
+fi
+
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias gs='git status -sb'
+
+if [ -f "$HOME/.bash_aliases" ]; then
+  . "$HOME/.bash_aliases"
+fi
+
+if [ -r /usr/share/bash-completion/bash_completion ]; then
+  . /usr/share/bash-completion/bash_completion
+elif [ -r /etc/bash_completion ]; then
+  . /etc/bash_completion
+fi
+
+if [ -n "${PYENV_ROOT:-}" ] && command -v pyenv >/dev/null 2>&1; then
+  eval "$(pyenv init - bash)"
+fi
+
+lazy_load_nvm() {
+  [ -n "${__NVM_LOADED:-}" ] && return 0
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+  export __NVM_LOADED=1
+}
+
+load_nvm_and_run() {
+  unset -f nvm node npm npx pnpm yarn corepack
+  lazy_load_nvm
+  "$@"
+}
+
+nvm() { load_nvm_and_run nvm "$@"; }
+node() { load_nvm_and_run node "$@"; }
+npm() { load_nvm_and_run npm "$@"; }
+npx() { load_nvm_and_run npx "$@"; }
+pnpm() { load_nvm_and_run pnpm "$@"; }
+yarn() { load_nvm_and_run yarn "$@"; }
+corepack() { load_nvm_and_run corepack "$@"; }
+
+if command -v direnv >/dev/null 2>&1; then
+  eval "$(direnv hook bash)"
+fi
+
+if command -v zoxide >/dev/null 2>&1; then
+  eval "$(zoxide init bash)"
+fi
+
+if command -v fzf >/dev/null 2>&1 && command -v fd >/dev/null 2>&1; then
+  export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+fi

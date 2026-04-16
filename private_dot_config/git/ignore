@@ -1,0 +1,10 @@
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.direnv/
+.envrc.local
+.idea/
+.fleet/
+.python-version

@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic fetch/prune for active development repositories
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+RandomizedDelaySec=15min
+Persistent=true
+Unit=dev-git-fetch.service
+
+[Install]
+WantedBy=timers.target

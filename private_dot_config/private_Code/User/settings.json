@@ -1,0 +1,6 @@
+{
+  "git.autofetch": false,
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.inheritEnv": true,
+  "window.commandCenter": true
+}
