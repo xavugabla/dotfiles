@@ -1,0 +1,25 @@
+README.md
+
+# machine-specific — managed by `dev repos add/remove`
+.config/dev/active-repos.txt
+
+{{- if eq .chezmoi.os "darwin" }}
+# linux-only
+.bashrc
+.profile
+.config/systemd
+.config/dev/install-apt.sh
+# editor settings live under ~/Library/Application Support/ on mac
+.config/Code
+.config/Cursor
+# shims for Debian package names — not needed on mac
+.local/bin/bat
+.local/bin/delta
+.local/bin/fd
+{{- end }}
+
+{{- if eq .chezmoi.os "linux" }}
+# mac-only
+.zshrc
+.zprofile
+{{- end }}

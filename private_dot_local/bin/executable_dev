@@ -3,6 +3,7 @@ set -euo pipefail
 
 PATH="$HOME/.local/bin:$HOME/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 
+OS="$(uname -s)"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 DEV_HOME="$CONFIG_HOME/dev"
 ACTIVE_REPOS_FILE="$DEV_HOME/active-repos.txt"
@@ -122,7 +123,12 @@ remove_repos() {
 bootstrap() {
   local required optional missing=()
 
-  for required in git gh ssh jq timeout systemctl; do
+  local required_tools=(git gh ssh jq timeout)
+  if [ "$OS" = "Linux" ]; then
+    required_tools+=(systemctl)
+  fi
+
+  for required in "${required_tools[@]}"; do
     command -v "$required" >/dev/null 2>&1 || missing+=("$required")
   done
 
@@ -136,12 +142,18 @@ bootstrap() {
     fi
   done
 
+  # 1Password SSH agent socket
   mkdir -p "$HOME/.1password"
-  ln -sfn "$CONFIG_HOME/1Password/ssh/agent.sock" "$HOME/.1password/agent.sock"
-  if [ -e "$CONFIG_HOME/1Password/ssh/agent.sock" ] || [ -S "$CONFIG_HOME/1Password/ssh/agent.sock" ]; then
+  if [ "$OS" = "Darwin" ]; then
+    local op_sock="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+  else
+    local op_sock="$CONFIG_HOME/1Password/ssh/agent.sock"
+  fi
+  ln -sfn "$op_sock" "$HOME/.1password/agent.sock"
+  if [ -e "$op_sock" ] || [ -S "$op_sock" ]; then
     say "linked 1Password SSH agent socket"
   else
-    warn "1Password SSH agent socket not found at $CONFIG_HOME/1Password/ssh/agent.sock"
+    warn "1Password SSH agent socket not found at $op_sock"
   fi
 
   if command -v chezmoi >/dev/null 2>&1 && [ -d "$CHEZMOI_SOURCE_DIR" ]; then
@@ -151,7 +163,7 @@ bootstrap() {
     warn "chezmoi source not applied"
   fi
 
-  if command -v systemctl >/dev/null 2>&1; then
+  if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload
     systemctl --user enable --now dev-git-fetch.timer
     say "reloaded user-systemd and enabled dev-git-fetch.timer"
