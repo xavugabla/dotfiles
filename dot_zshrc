@@ -23,9 +23,6 @@ alias gs='git status -sb'
 alias gdc='export CLOUDSDK_ACTIVE_CONFIG_NAME=daisychain'
 alias gpx='export CLOUDSDK_ACTIVE_CONFIG_NAME=proxima'
 
-# cloudflare account switching
-alias cfd='CLOUDFLARE_EMAIL=xavier@daisychain.energy wrangler login'
-alias cfp='CLOUDFLARE_EMAIL=masterxavuga@gmail.com wrangler login'
 
 # pyenv
 if [[ -d "$HOME/.pyenv" ]]; then
