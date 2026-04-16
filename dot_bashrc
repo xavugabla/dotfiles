@@ -83,6 +83,10 @@ alias la='ls -A'
 alias l='ls -CF'
 alias gs='git status -sb'
 
+# gcloud config switching (per-shell, not global)
+alias gdc='export CLOUDSDK_ACTIVE_CONFIG_NAME=daisychain'
+alias gpx='export CLOUDSDK_ACTIVE_CONFIG_NAME=proxima'
+
 if [ -f "$HOME/.bash_aliases" ]; then
   . "$HOME/.bash_aliases"
 fi

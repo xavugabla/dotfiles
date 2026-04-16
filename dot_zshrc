@@ -20,8 +20,8 @@ alias l='ls -CF'
 alias gs='git status -sb'
 
 # gcloud config switching
-alias gdc='gcloud config configurations activate daisychain'
-alias gpx='gcloud config configurations activate proxima'
+alias gdc='export CLOUDSDK_ACTIVE_CONFIG_NAME=daisychain'
+alias gpx='export CLOUDSDK_ACTIVE_CONFIG_NAME=proxima'
 
 # cloudflare account switching
 alias cfd='CLOUDFLARE_EMAIL=xavier@daisychain.energy wrangler login'
