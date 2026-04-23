@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/opt/homebrew/sbin${PATH:+:$PATH}"
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+warn() {
+  printf 'warning: %s\n' "$*" >&2
+}
+
+if [ "$(uname -s)" != "Darwin" ]; then
+  die "dev-bootstrap-macos-users only supports macOS"
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+  die "run with sudo from the meta user account"
+fi
+
+META_USER="${SUDO_USER:-}"
+[ -n "$META_USER" ] || die "SUDO_USER is not set; run this with sudo from the meta user account"
+
+META_HOME="$(dscl . -read "/Users/$META_USER" NFSHomeDirectory | awk '{print $2}')"
+[ -n "$META_HOME" ] || die "could not determine home directory for $META_USER"
+
+SOURCE_CHEZMOI="${SOURCE_CHEZMOI:-$META_HOME/.local/share/chezmoi}"
+SOURCE_REMOTE="$(git \
+  -c safe.directory="$SOURCE_CHEZMOI" \
+  -c safe.directory="$SOURCE_CHEZMOI/.git" \
+  -C "$SOURCE_CHEZMOI" remote get-url origin)"
+CHEZMOI_BIN="${CHEZMOI_BIN:-/opt/homebrew/bin/chezmoi}"
+GIT_BIN="${GIT_BIN:-/usr/bin/git}"
+PUBKEY_SOURCE="${PUBKEY_SOURCE:-$META_HOME/.ssh/id_ed25519.pub}"
+
+[ -x "$CHEZMOI_BIN" ] || die "missing chezmoi at $CHEZMOI_BIN"
+[ -d "$SOURCE_CHEZMOI" ] || die "missing source chezmoi tree at $SOURCE_CHEZMOI"
+
+bootstrap_user() {
+  local user="$1"
+  local home_dir="$2"
+  shift 2
+  local repo_roots=("$@")
+  local local_dir="$home_dir/.local"
+  local config_dir="$home_dir/.config"
+  local chezmoi_dir="$home_dir/.local/share/chezmoi"
+  local ssh_dir="$home_dir/.ssh"
+  local snapshot_suffix
+
+  snapshot_suffix="$(date +%Y%m%d_%H%M%S)"
+
+  printf '==> bootstrapping %s (%s)\n' "$user" "$home_dir"
+  install -d -o "$user" -g staff "$local_dir" "$local_dir/share" "$local_dir/bin" "$config_dir" "$ssh_dir"
+  chown -R "$user":staff "$local_dir" "$config_dir" "$ssh_dir"
+
+  if [ -d "$chezmoi_dir" ] && [ ! -d "$chezmoi_dir/.git" ]; then
+    mv "$chezmoi_dir" "${chezmoi_dir}.snapshot-$snapshot_suffix"
+  fi
+
+  if [ ! -d "$chezmoi_dir/.git" ]; then
+    "$GIT_BIN" \
+      -c safe.directory="$SOURCE_CHEZMOI" \
+      -c safe.directory="$SOURCE_CHEZMOI/.git" \
+      clone --no-hardlinks "$SOURCE_CHEZMOI" "$chezmoi_dir"
+    "$GIT_BIN" -C "$chezmoi_dir" remote set-url origin "$SOURCE_REMOTE"
+    chown -R "$user":staff "$chezmoi_dir"
+  else
+    if ! su - "$user" -c "$GIT_BIN -C \"$chezmoi_dir\" pull --ff-only"; then
+      warn "could not refresh $user chezmoi checkout; applying existing checkout"
+    fi
+  fi
+
+  rm -f "$config_dir/chezmoi/chezmoi.toml"
+  chown -R "$user":staff "$local_dir" "$config_dir" "$ssh_dir"
+
+  for repo_root in "${repo_roots[@]}"; do
+    install -d -o "$user" -g staff "$home_dir/$repo_root"
+  done
+
+  if [ -f "$PUBKEY_SOURCE" ]; then
+    install -o "$user" -g staff -m 0644 "$PUBKEY_SOURCE" "$ssh_dir/id_ed25519.pub"
+  fi
+
+  su - "$user" -c "HOME='$home_dir' USER='$user' LOGNAME='$user' '$CHEZMOI_BIN' apply --source '$chezmoi_dir' --destination '$home_dir' --force"
+}
+
+TARGETS=("$@")
+if [ "${#TARGETS[@]}" -eq 0 ]; then
+  TARGETS=(DC XA)
+fi
+
+for target in "${TARGETS[@]}"; do
+  case "$target" in
+    DC)
+      bootstrap_user "DC" "/Users/DC" "code" "code/daisychain"
+      ;;
+    XA)
+      bootstrap_user "XA" "/Users/XA" "code" "code/personal" "code/proxima"
+      ;;
+    *)
+      die "unknown target user: $target"
+      ;;
+  esac
+done
+
+printf '==> bootstrap complete\n'
