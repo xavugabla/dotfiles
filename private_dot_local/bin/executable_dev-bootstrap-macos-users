@@ -67,7 +67,7 @@ bootstrap_user() {
     "$GIT_BIN" -C "$chezmoi_dir" remote set-url origin "$SOURCE_REMOTE"
     chown -R "$user":staff "$chezmoi_dir"
   else
-    if ! su - "$user" -c "$GIT_BIN -C \"$chezmoi_dir\" pull --ff-only"; then
+    if ! sudo -u "$user" -H "$GIT_BIN" -C "$chezmoi_dir" pull --ff-only; then
       warn "could not refresh $user chezmoi checkout; applying existing checkout"
     fi
   fi
@@ -83,7 +83,8 @@ bootstrap_user() {
     install -o "$user" -g staff -m 0644 "$PUBKEY_SOURCE" "$ssh_dir/id_ed25519.pub"
   fi
 
-  su - "$user" -c "HOME='$home_dir' USER='$user' LOGNAME='$user' '$CHEZMOI_BIN' apply --source '$chezmoi_dir' --destination '$home_dir' --force"
+  sudo -u "$user" -H env HOME="$home_dir" USER="$user" LOGNAME="$user" \
+    "$CHEZMOI_BIN" apply --source "$chezmoi_dir" --destination "$home_dir" --force
 }
 
 TARGETS=("$@")
