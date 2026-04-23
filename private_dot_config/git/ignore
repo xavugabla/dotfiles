@@ -8,3 +8,5 @@ Thumbs.db
 .idea/
 .fleet/
 .python-version
+
+**/.claude/settings.local.json

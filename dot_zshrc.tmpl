@@ -1,3 +1,6 @@
+{{- $profileName := includeTemplate "profile-name.tmpl" . | trim -}}
+{{- $profile := index .profiles $profileName -}}
+{{- $onepasswordAgent := includeTemplate "onepassword-agent.tmpl" . | trim -}}
 # ~/.zshrc: interactive shell configuration (macOS)
 
 # History
@@ -19,9 +22,19 @@ alias la='ls -A'
 alias l='ls -CF'
 alias gs='git status -sb'
 
+export XAVUGA_PROFILE="{{ $profileName }}"
+export XAVUGA_MACHINE_ROLE="{{ $profile.machine_role }}"
+export XAVUGA_REPO_ROOT_DAISYCHAIN="$HOME/{{ (index .contexts "daisychain").repo_root }}"
+export XAVUGA_REPO_ROOT_OTHER_PROJECTS="$HOME/{{ (index .contexts "other_projects").repo_root }}"
+export XAVUGA_REPO_ROOT_PROXIMA="$HOME/{{ (index .contexts "proxima").repo_root }}"
+
 # gcloud config switching
-alias gdc='export CLOUDSDK_ACTIVE_CONFIG_NAME=daisychain'
-alias gpx='export CLOUDSDK_ACTIVE_CONFIG_NAME=proxima'
+alias gdc='export CLOUDSDK_ACTIVE_CONFIG_NAME={{ (index .contexts "daisychain").gcloud_config }}'
+alias gpx='export CLOUDSDK_ACTIVE_CONFIG_NAME={{ (index .contexts "proxima").gcloud_config }}'
+
+if [[ -S "{{ $onepasswordAgent }}" ]]; then
+    export SSH_AUTH_SOCK="{{ $onepasswordAgent }}"
+fi
 
 
 # pyenv

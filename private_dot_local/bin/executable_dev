@@ -19,6 +19,7 @@ Usage:
   dev repos remove <repo-or-path> [...]
   dev git-sync [--quiet]
   dev secrets sync <service|all>
+  dev visibility report [--extra-root /absolute/path]
 EOF
 }
 
@@ -255,6 +256,23 @@ sync_secrets() {
   sync_secret "$1"
 }
 
+visibility_report() {
+  local script_dir script_path
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [ -f "$script_dir/dev-visibility-report.py" ]; then
+    script_path="$script_dir/dev-visibility-report.py"
+  elif [ -f "$script_dir/executable_dev-visibility-report.py" ]; then
+    script_path="$script_dir/executable_dev-visibility-report.py"
+  elif [ -f "$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-visibility-report.py" ]; then
+    script_path="$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-visibility-report.py"
+  else
+    die "dev visibility helper not found"
+  fi
+
+  exec python3 "$script_path" "$@"
+}
+
 main() {
   [ "$#" -gt 0 ] || {
     usage
@@ -299,6 +317,19 @@ main() {
         sync)
           shift
           sync_secrets "$@"
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+      ;;
+    visibility)
+      shift
+      case "${1:-}" in
+        report)
+          shift
+          visibility_report "$@"
           ;;
         *)
           usage

@@ -1,0 +1,26 @@
+{{- $profileName := "" -}}
+{{- range $name, $profile := .profiles -}}
+  {{- $selector := $profile.selector -}}
+  {{- if and (eq $profileName "") (eq $.chezmoi.os $selector.os) -}}
+    {{- $matchesUser := false -}}
+    {{- range $username := $selector.usernames -}}
+      {{- if eq $.chezmoi.username $username -}}
+        {{- $matchesUser = true -}}
+      {{- end -}}
+    {{- end -}}
+    {{- $matchesHost := false -}}
+    {{- if not $selector.hostnames -}}
+      {{- $matchesHost = true -}}
+    {{- else -}}
+      {{- range $hostname := $selector.hostnames -}}
+        {{- if eq $.chezmoi.hostname $hostname -}}
+          {{- $matchesHost = true -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+    {{- if and $matchesUser $matchesHost -}}
+      {{- $profileName = $name -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $profileName -}}

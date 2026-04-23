@@ -1,0 +1,6 @@
+; DaisyChain has its own fragment now so the email/key can diverge later
+; without touching the shared global defaults.
+[user]
+	name = Xavugabla
+	email = masterxavuga@gmail.com
+	signingkey = {{ joinPath .chezmoi.homeDir ".ssh/id_ed25519.pub" }}
