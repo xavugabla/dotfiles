@@ -20,10 +20,10 @@ if [ "$(id -u)" -ne 0 ]; then
   die "run with sudo from the meta user account"
 fi
 
-META_USER="${SUDO_USER:-}"
-[ -n "$META_USER" ] || die "SUDO_USER is not set; run this with sudo from the meta user account"
+META_USER="${META_USER:-${SUDO_USER:-}}"
+[ -n "$META_USER" ] || die "META_USER or SUDO_USER is not set; run this with sudo or provide META_USER from the meta user account"
 
-META_HOME="$(dscl . -read "/Users/$META_USER" NFSHomeDirectory | awk '{print $2}')"
+META_HOME="${META_HOME:-$(dscl . -read "/Users/$META_USER" NFSHomeDirectory | awk '{print $2}')}"
 [ -n "$META_HOME" ] || die "could not determine home directory for $META_USER"
 
 SOURCE_CHEZMOI="${SOURCE_CHEZMOI:-$META_HOME/.local/share/chezmoi}"
