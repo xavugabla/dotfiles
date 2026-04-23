@@ -24,5 +24,5 @@ Workflow:
 - Git identity boundaries are anchored by repo roots: `~/code/daisychain`, `~/code/personal`, and `~/code/proxima`.
 - `.chezmoidata.yaml` is the shared baseline. The repo decides identity explicitly from `username + os` for macOS users and `username + hostname + os` for the Linux execution machine.
 - `~/.config/chezmoi/chezmoi.toml` should be reserved for truly local, non-policy configuration.
-- `Brewfile` is package inventory, not service policy. Local model servers and local databases should be started manually when needed.
+- `Brewfile` in `~/.config/dev` is package inventory, not service policy. Use `brew bundle --file ~/.config/dev/Brewfile` when you want Homebrew to evaluate it. Local model servers and local databases should be started manually when needed.
 - `mise` is intentionally deferred until there is an explicit shared toolchain/version policy.

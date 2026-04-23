@@ -23,7 +23,7 @@ Available profiles:
 - The repository is the shared baseline and it decides identity explicitly from `username + os` on macOS and `username + hostname + os` for the Linux execution machine.
 - Local `chezmoi.toml` should be reserved for truly local, non-policy config.
 - Repo-root Git identity fragments separate DaisyChain, other-projects, and Proxima without duplicating the shared defaults.
-- `Brewfile` tracks the baseline package inventory only. Services like `ollama` and `postgresql@16` are installed but intentionally not configured as always-on background services on macOS.
+- `~/.config/dev/Brewfile` tracks the baseline package inventory only. Use `brew bundle --file ~/.config/dev/Brewfile` when you want Homebrew to evaluate it. Services like `ollama` and `postgresql@16` are installed but intentionally not configured as always-on background services on macOS.
 - `mise` is intentionally not part of the baseline yet. The current baseline remains `pyenv` plus per-user Node management until a real shared toolchain policy is chosen.
 - Machine-specific secrets are not stored here.
 - Privileged package setup lives in `~/.config/dev/install-apt.sh` after apply.

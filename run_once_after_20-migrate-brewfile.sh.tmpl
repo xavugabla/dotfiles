@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+old_brewfile="{{ .chezmoi.homeDir }}/Brewfile"
+new_brewfile="{{ .chezmoi.homeDir }}/.config/dev/Brewfile"
+
+[ -f "$old_brewfile" ] || exit 0
+[ -f "$new_brewfile" ] || exit 0
+
+if cmp -s "$old_brewfile" "$new_brewfile"; then
+  rm -f "$old_brewfile"
+fi
