@@ -84,6 +84,8 @@ end
 
 config.leader = { key = 'Space', mods = 'CTRL|SHIFT', timeout_milliseconds = 1000 }
 config.keys = {
+  { key = 'd', mods = 'CMD', action = act.SplitHorizontal { domain = 'CurrentPaneDomain' } },
+  { key = 'd', mods = 'CMD|SHIFT', action = act.SplitVertical { domain = 'CurrentPaneDomain' } },
   { key = 'p', mods = 'LEADER', action = act.ShowLauncher },
   { key = 'r', mods = 'LEADER', action = act.ReloadConfiguration },
   { key = 'f', mods = 'LEADER', action = act.Search 'CurrentSelectionOrEmptyString' },
