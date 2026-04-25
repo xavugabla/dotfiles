@@ -1,0 +1,109 @@
+local wezterm = require 'wezterm'
+local act = wezterm.action
+local config = wezterm.config_builder and wezterm.config_builder() or {}
+
+local profile = "{{ includeTemplate "profile-name.tmpl" . | trim }}"
+local is_macos = wezterm.target_triple:find('apple') ~= nil
+
+local default_workspace_by_profile = {
+  meta_mac = 'meta',
+  DC_OS = 'daisychain',
+  XA_OS = 'xavuga',
+  fx_linux = 'linux',
+}
+
+config.default_workspace = default_workspace_by_profile[profile] or 'main'
+config.automatically_reload_config = true
+config.check_for_updates = false
+config.show_update_window = false
+config.audible_bell = 'Disabled'
+config.scrollback_lines = 20000
+config.default_cursor_style = 'SteadyBar'
+config.adjust_window_size_when_changing_font_size = false
+
+config.font = wezterm.font_with_fallback({
+  'Berkeley Mono',
+  'JetBrainsMono Nerd Font',
+  'JetBrains Mono',
+  'SF Mono',
+  'Menlo',
+})
+config.harfbuzz_features = { 'calt=0', 'clig=0', 'liga=0' }
+config.font_size = is_macos and 14.0 or 12.5
+config.line_height = 1.0
+
+config.window_padding = {
+  left = 8,
+  right = 8,
+  top = 6,
+  bottom = 6,
+}
+config.window_decorations = 'TITLE | RESIZE'
+config.use_fancy_tab_bar = false
+config.hide_tab_bar_if_only_one_tab = true
+config.show_new_tab_button_in_tab_bar = false
+config.tab_max_width = 28
+config.colors = {
+  foreground = '#e7dfd3',
+  background = '#12161b',
+  cursor_bg = '#f0c674',
+  cursor_fg = '#12161b',
+  selection_bg = '#2e4057',
+  selection_fg = '#e7dfd3',
+  ansi = {
+    '#1b1f24',
+    '#d06b6b',
+    '#98b978',
+    '#e5c07b',
+    '#7aa2cf',
+    '#b48ead',
+    '#76b7b2',
+    '#cfc7ba',
+  },
+  brights = {
+    '#5f6772',
+    '#e67e80',
+    '#b6d18d',
+    '#f1d58a',
+    '#93b7e3',
+    '#c8a2c8',
+    '#8fd1cb',
+    '#fffaf0',
+  },
+}
+config.inactive_pane_hsb = {
+  saturation = 0.9,
+  brightness = 0.8,
+}
+
+config.ssh_backend = 'LibSsh'
+config.ssh_domains = wezterm.default_ssh_domains()
+for _, dom in ipairs(config.ssh_domains) do
+  dom.assume_shell = 'Posix'
+end
+
+config.leader = { key = 'Space', mods = 'CTRL|SHIFT', timeout_milliseconds = 1000 }
+config.keys = {
+  { key = 'p', mods = 'LEADER', action = act.ShowLauncher },
+  { key = 'r', mods = 'LEADER', action = act.ReloadConfiguration },
+  { key = 'f', mods = 'LEADER', action = act.Search 'CurrentSelectionOrEmptyString' },
+  { key = 'c', mods = 'LEADER', action = act.SpawnTab 'CurrentPaneDomain' },
+  { key = '\\', mods = 'LEADER', action = act.SplitHorizontal { domain = 'CurrentPaneDomain' } },
+  { key = '-', mods = 'LEADER', action = act.SplitVertical { domain = 'CurrentPaneDomain' } },
+  { key = 'z', mods = 'LEADER', action = act.TogglePaneZoomState },
+  { key = 'LeftArrow', mods = 'LEADER', action = act.ActivatePaneDirection 'Left' },
+  { key = 'RightArrow', mods = 'LEADER', action = act.ActivatePaneDirection 'Right' },
+  { key = 'UpArrow', mods = 'LEADER', action = act.ActivatePaneDirection 'Up' },
+  { key = 'DownArrow', mods = 'LEADER', action = act.ActivatePaneDirection 'Down' },
+  { key = 'LeftArrow', mods = 'LEADER|SHIFT', action = act.AdjustPaneSize { 'Left', 5 } },
+  { key = 'RightArrow', mods = 'LEADER|SHIFT', action = act.AdjustPaneSize { 'Right', 5 } },
+  { key = 'UpArrow', mods = 'LEADER|SHIFT', action = act.AdjustPaneSize { 'Up', 3 } },
+  { key = 'DownArrow', mods = 'LEADER|SHIFT', action = act.AdjustPaneSize { 'Down', 3 } },
+  { key = '1', mods = 'LEADER', action = act.ActivateTab(0) },
+  { key = '2', mods = 'LEADER', action = act.ActivateTab(1) },
+  { key = '3', mods = 'LEADER', action = act.ActivateTab(2) },
+  { key = '4', mods = 'LEADER', action = act.ActivateTab(3) },
+  { key = '5', mods = 'LEADER', action = act.ActivateTab(4) },
+}
+
+return config

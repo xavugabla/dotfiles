@@ -19,7 +19,7 @@ Available profiles:
 
 ## Notes
 
-- The source includes shell, Git, editor, SSH, and user-systemd configuration.
+- The source includes shell, Git, SSH, terminal, editor, and user-systemd configuration.
 - The repository is the shared baseline and it decides identity explicitly from `username + os` on macOS and `username + hostname + os` for the Linux execution machine.
 - Local `chezmoi.toml` should be reserved for truly local, non-policy config.
 - Repo-root Git identity fragments separate DaisyChain, other-projects, and Proxima without duplicating the shared defaults.
