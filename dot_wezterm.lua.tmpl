@@ -17,14 +17,15 @@ config.automatically_reload_config = true
 config.check_for_updates = false
 config.show_update_window = false
 config.audible_bell = 'Disabled'
-config.scrollback_lines = 20000
+config.scrollback_lines = 100000
 config.default_cursor_style = 'SteadyBar'
 config.adjust_window_size_when_changing_font_size = false
+config.switch_to_last_active_tab_when_closing_tab = true
+config.swallow_mouse_click_on_pane_focus = true
 
 config.font = wezterm.font_with_fallback({
-  'Berkeley Mono',
-  'JetBrainsMono Nerd Font',
   'JetBrains Mono',
+  'JetBrainsMono Nerd Font',
   'SF Mono',
   'Menlo',
 })
@@ -40,6 +41,7 @@ config.window_padding = {
 }
 config.window_decorations = 'TITLE | RESIZE'
 if is_macos then
+  config.native_macos_fullscreen_mode = true
   config.window_background_opacity = 0.92
   config.macos_window_background_blur = 18
 end
@@ -90,8 +92,18 @@ config.leader = { key = 'Space', mods = 'CTRL|SHIFT', timeout_milliseconds = 100
 config.keys = {
   { key = 'd', mods = 'CMD', action = act.SplitHorizontal { domain = 'CurrentPaneDomain' } },
   { key = 'd', mods = 'CMD|SHIFT', action = act.SplitVertical { domain = 'CurrentPaneDomain' } },
+  { key = 't', mods = 'CMD', action = act.SpawnTab 'CurrentPaneDomain' },
+  { key = 'w', mods = 'CMD', action = act.CloseCurrentTab { confirm = true } },
+  { key = 'f', mods = 'CMD', action = act.Search 'CurrentSelectionOrEmptyString' },
   { key = 'P', mods = 'CMD|SHIFT', action = act.ActivateCommandPalette },
   { key = 'f', mods = 'CMD|SHIFT', action = act.QuickSelect },
+  { key = 'k', mods = 'CMD', action = act.Multiple {
+    act.ClearScrollback 'ScrollbackAndViewport',
+    act.SendKey { key = 'L', mods = 'CTRL' },
+  } },
+  { key = 'Enter', mods = 'CMD', action = act.ToggleFullScreen },
+  { key = '[', mods = 'CMD|SHIFT', action = act.ActivateTabRelative(-1) },
+  { key = ']', mods = 'CMD|SHIFT', action = act.ActivateTabRelative(1) },
   { key = 'p', mods = 'LEADER', action = act.ShowLauncher },
   { key = 'r', mods = 'LEADER', action = act.ReloadConfiguration },
   { key = 'f', mods = 'LEADER', action = act.Search 'CurrentSelectionOrEmptyString' },

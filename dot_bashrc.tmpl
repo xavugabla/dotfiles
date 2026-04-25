@@ -145,3 +145,18 @@ fi
 if command -v fzf >/dev/null 2>&1 && command -v fd >/dev/null 2>&1; then
   export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 fi
+
+if [ "${TERM_PROGRAM:-}" = "WezTerm" ]; then
+  for wezterm_shell_integration in \
+    /Applications/WezTerm.app/Contents/Resources/wezterm.sh \
+    /opt/homebrew/share/wezterm/wezterm.sh \
+    /usr/local/share/wezterm/wezterm.sh \
+    /usr/share/wezterm/wezterm.sh
+  do
+    if [ -r "$wezterm_shell_integration" ]; then
+      . "$wezterm_shell_integration"
+      break
+    fi
+  done
+  unset wezterm_shell_integration
+fi

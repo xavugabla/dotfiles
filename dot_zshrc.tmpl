@@ -81,5 +81,21 @@ export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.13
 # curl (homebrew, newer than system)
 export PATH="/opt/homebrew/opt/curl/bin:$PATH"
 
+# WezTerm shell integration
+if [[ "${TERM_PROGRAM:-}" == "WezTerm" ]]; then
+    for wezterm_shell_integration in \
+        "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" \
+        "/opt/homebrew/share/wezterm/wezterm.sh" \
+        "/usr/local/share/wezterm/wezterm.sh" \
+        "/usr/share/wezterm/wezterm.sh"
+    do
+        if [[ -r "$wezterm_shell_integration" ]]; then
+            source "$wezterm_shell_integration"
+            break
+        fi
+    done
+    unset wezterm_shell_integration
+fi
+
 # iTerm2 integration
 [[ -e "${HOME}/.iterm2_shell_integration.zsh" ]] && source "${HOME}/.iterm2_shell_integration.zsh"
