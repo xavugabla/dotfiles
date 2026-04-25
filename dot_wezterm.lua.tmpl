@@ -39,6 +39,10 @@ config.window_padding = {
   bottom = 6,
 }
 config.window_decorations = 'TITLE | RESIZE'
+if is_macos then
+  config.window_background_opacity = 0.92
+  config.macos_window_background_blur = 18
+end
 config.use_fancy_tab_bar = false
 config.hide_tab_bar_if_only_one_tab = true
 config.show_new_tab_button_in_tab_bar = false
@@ -86,6 +90,8 @@ config.leader = { key = 'Space', mods = 'CTRL|SHIFT', timeout_milliseconds = 100
 config.keys = {
   { key = 'd', mods = 'CMD', action = act.SplitHorizontal { domain = 'CurrentPaneDomain' } },
   { key = 'd', mods = 'CMD|SHIFT', action = act.SplitVertical { domain = 'CurrentPaneDomain' } },
+  { key = 'P', mods = 'CMD|SHIFT', action = act.ActivateCommandPalette },
+  { key = 'f', mods = 'CMD|SHIFT', action = act.QuickSelect },
   { key = 'p', mods = 'LEADER', action = act.ShowLauncher },
   { key = 'r', mods = 'LEADER', action = act.ReloadConfiguration },
   { key = 'f', mods = 'LEADER', action = act.Search 'CurrentSelectionOrEmptyString' },
@@ -106,6 +112,10 @@ config.keys = {
   { key = '3', mods = 'LEADER', action = act.ActivateTab(2) },
   { key = '4', mods = 'LEADER', action = act.ActivateTab(3) },
   { key = '5', mods = 'LEADER', action = act.ActivateTab(4) },
+  { key = '1', mods = 'CMD|ALT', action = act.SwitchToWorkspace { name = 'meta' } },
+  { key = '2', mods = 'CMD|ALT', action = act.SwitchToWorkspace { name = 'daisychain' } },
+  { key = '3', mods = 'CMD|ALT', action = act.SwitchToWorkspace { name = 'xavuga' } },
+  { key = '4', mods = 'CMD|ALT', action = act.SwitchToWorkspace { name = 'linux' } },
 }
 
 return config
