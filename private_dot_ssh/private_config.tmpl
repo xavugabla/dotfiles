@@ -1,10 +1,14 @@
 Host *
     IdentityAgent "{{ includeTemplate "onepassword-agent.tmpl" . | trim }}"
+{{- if eq .chezmoi.os "darwin" }}
+    AddKeysToAgent no
+    UseKeychain no
+{{- end }}
 
 Host github.com
     HostName github.com
     User git
-    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
     PreferredAuthentications publickey
 
 Host fx

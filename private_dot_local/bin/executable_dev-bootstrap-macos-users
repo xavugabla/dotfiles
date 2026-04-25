@@ -47,13 +47,17 @@ bootstrap_user() {
   local config_dir="$home_dir/.config"
   local chezmoi_dir="$home_dir/.local/share/chezmoi"
   local ssh_dir="$home_dir/.ssh"
+  local onepassword_dir="$home_dir/.1password"
+  local onepassword_agent_target="$home_dir/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
   local snapshot_suffix
 
   snapshot_suffix="$(date +%Y%m%d_%H%M%S)"
 
   printf '==> bootstrapping %s (%s)\n' "$user" "$home_dir"
-  install -d -o "$user" -g staff "$local_dir" "$local_dir/share" "$local_dir/bin" "$config_dir" "$ssh_dir"
-  chown -R "$user":staff "$local_dir" "$config_dir" "$ssh_dir"
+  install -d -o "$user" -g staff "$local_dir" "$local_dir/share" "$local_dir/bin" "$config_dir" "$ssh_dir" "$onepassword_dir"
+  chown -R "$user":staff "$local_dir" "$config_dir" "$ssh_dir" "$onepassword_dir"
+  ln -sfn "$onepassword_agent_target" "$onepassword_dir/agent.sock"
+  chown -h "$user":staff "$onepassword_dir/agent.sock"
 
   if [ -d "$chezmoi_dir" ] && [ ! -d "$chezmoi_dir/.git" ]; then
     mv "$chezmoi_dir" "${chezmoi_dir}.snapshot-$snapshot_suffix"
