@@ -1,4 +1,4 @@
-{{- $home := .chezmoi.homeDir -}}
+{{- $home := includeTemplate "home-dir.tmpl" . | trim -}}
 {{- $profileName := includeTemplate "profile-name.tmpl" . | trim -}}
 {{- $profile := index .profiles $profileName -}}
 [user]

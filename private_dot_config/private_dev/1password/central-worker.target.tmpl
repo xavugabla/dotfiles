@@ -1,1 +1,1 @@
-{{ .chezmoi.homeDir }}/.config/central/central-worker.env
+{{ includeTemplate "home-dir.tmpl" . | trim }}/.config/central/central-worker.env

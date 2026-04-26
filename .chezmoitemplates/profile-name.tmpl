@@ -1,10 +1,11 @@
 {{- $profileName := "" -}}
+{{- $destUsername := base (printf "%s" .chezmoi.destDir) -}}
 {{- range $name, $profile := .profiles -}}
   {{- $selector := $profile.selector -}}
   {{- if and (eq $profileName "") (eq $.chezmoi.os $selector.os) -}}
     {{- $matchesUser := false -}}
     {{- range $username := $selector.usernames -}}
-      {{- if eq $.chezmoi.username $username -}}
+      {{- if or (eq $.chezmoi.username $username) (eq $destUsername $username) -}}
         {{- $matchesUser = true -}}
       {{- end -}}
     {{- end -}}

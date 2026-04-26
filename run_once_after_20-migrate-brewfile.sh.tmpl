@@ -1,8 +1,9 @@
 #!/bin/sh
 set -eu
 
-old_brewfile="{{ .chezmoi.homeDir }}/Brewfile"
-new_brewfile="{{ .chezmoi.homeDir }}/.config/dev/Brewfile"
+{{- $home := includeTemplate "home-dir.tmpl" . | trim }}
+old_brewfile="{{ $home }}/Brewfile"
+new_brewfile="{{ $home }}/.config/dev/Brewfile"
 
 [ -f "$old_brewfile" ] || exit 0
 [ -f "$new_brewfile" ] || exit 0
