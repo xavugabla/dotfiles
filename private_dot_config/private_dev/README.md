@@ -12,7 +12,9 @@ Files and directories:
 Workflow:
 - Use `direnv` for repo-local development environments.
 - Use `EnvironmentFile=` for long-running user services.
-- Run `./install-apt.sh` for the privileged package and 1Password install step.
+- Run `./install-apt.sh` for the privileged package and 1Password install step on Linux.
+- Use `fxbc` as the macOS control-plane user. Run `dev-as DC` or `dev-as XA` from `fxbc` for clean terminal work as the dedicated macOS identities.
+- Run `dev-user-doctor` inside any profile to inspect identity, Git, SSH-agent, repo-root, and Homebrew state without reading Keychain contents.
 - Run `sudo ~/.local/bin/dev-bootstrap-macos-users [DC] [XA]` from the meta macOS user when you need to seed or refresh the dedicated macOS users from the shared baseline.
 - Run `dev bootstrap` after changing managed shell, Git, or systemd files.
 - Run `dev visibility report` (or `~/.local/bin/dev-visibility-report.py`) to refresh the read-only agent config inventory at `~/.config/dev/visibility/agent-visibility.md`. v2 adds:

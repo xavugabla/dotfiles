@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  dev-as DC
+  dev-as XA
+  dev-as DC -- command [args...]
+  dev-as XA -- command [args...]
+
+Start a clean shell or run a command as a dedicated macOS identity user.
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+if [ "$(uname -s)" != "Darwin" ]; then
+  die "dev-as only supports macOS"
+fi
+
+target="${1:-}"
+[ -n "$target" ] || { usage; exit 2; }
+shift || true
+
+case "$target" in
+  DC|XA) ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    die "unknown target user: $target"
+    ;;
+esac
+
+home_dir="$(dscl . -read "/Users/$target" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+[ -n "$home_dir" ] || die "could not determine home directory for $target"
+[ -d "$home_dir" ] || die "home directory does not exist: $home_dir"
+
+if [ "${1:-}" = "--" ]; then
+  shift
+fi
+
+base_env=(
+  HOME="$home_dir"
+  USER="$target"
+  LOGNAME="$target"
+  SHELL="/bin/zsh"
+  TERM="${TERM:-xterm-256color}"
+  PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+)
+
+if [ "$#" -gt 0 ]; then
+  exec sudo -u "$target" -H env -i "${base_env[@]}" /bin/zsh -lic 'exec "$@"' dev-as-command "$@"
+fi
+
+exec sudo -u "$target" -H env -i "${base_env[@]}" /bin/zsh -l

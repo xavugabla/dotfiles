@@ -22,6 +22,8 @@ Available profiles:
 - The source includes shell, Git, SSH, terminal, editor, and user-systemd configuration.
 - The repository is the shared baseline and it decides identity explicitly from `username + os` on macOS and `username + hostname + os` for the Linux execution machine.
 - Local `chezmoi.toml` should be reserved for truly local, non-policy config.
+- `fxbc` is the macOS control-plane user. Use `dev-as DC` or `dev-as XA` from `fxbc` when you want a clean terminal shell as a dedicated macOS identity without switching the full GUI session.
+- Use `dev-user-doctor` inside any profile to inspect the rendered identity, Git, SSH-agent, repo-root, and Homebrew state without reading Keychain contents.
 - Repo-root Git identity fragments separate DaisyChain, other-projects, and Proxima without duplicating the shared defaults.
 - `~/.config/dev/Brewfile` tracks the baseline package inventory only. Use `brew bundle --file ~/.config/dev/Brewfile` when you want Homebrew to evaluate it. Services like `ollama` and `postgresql@16` are installed but intentionally not configured as always-on background services on macOS.
 - `mise` is intentionally not part of the baseline yet. The current baseline remains `pyenv` plus per-user Node management until a real shared toolchain policy is chosen.

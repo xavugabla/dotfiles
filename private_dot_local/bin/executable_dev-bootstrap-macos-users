@@ -87,7 +87,9 @@ bootstrap_user() {
     install -o "$user" -g staff -m 0644 "$PUBKEY_SOURCE" "$ssh_dir/id_ed25519.pub"
   fi
 
-  sudo -u "$user" -H env HOME="$home_dir" USER="$user" LOGNAME="$user" \
+  sudo -u "$user" -H env -i \
+    HOME="$home_dir" USER="$user" LOGNAME="$user" SHELL="/bin/zsh" \
+    PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin" \
     "$CHEZMOI_BIN" apply --source "$chezmoi_dir" --destination "$home_dir" --force
 }
 
