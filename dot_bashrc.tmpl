@@ -42,6 +42,9 @@ export XAVUGA_REPO_ROOT_PROXIMA="$HOME/{{ (index .contexts "proxima").repo_root 
 
 if [ -S "{{ $onepasswordAgent }}" ]; then
   export SSH_AUTH_SOCK="{{ $onepasswordAgent }}"
+else
+  unset SSH_AUTH_SOCK
+  unset SSH_AGENT_PID
 fi
 
 if [ -x /usr/bin/lesspipe ]; then

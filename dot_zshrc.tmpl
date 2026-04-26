@@ -34,6 +34,9 @@ alias gpx='export CLOUDSDK_ACTIVE_CONFIG_NAME={{ (index .contexts "proxima").gcl
 
 if [[ -S "{{ $onepasswordAgent }}" ]]; then
     export SSH_AUTH_SOCK="{{ $onepasswordAgent }}"
+else
+    unset SSH_AUTH_SOCK
+    unset SSH_AGENT_PID
 fi
 
 
