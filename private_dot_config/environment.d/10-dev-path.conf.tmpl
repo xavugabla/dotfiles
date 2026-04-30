@@ -1,0 +1,3 @@
+{{- $home := includeTemplate "home-dir.tmpl" . | trim -}}
+PATH={{ $home }}/.local/share/mise/shims:{{ $home }}/.local/bin:{{ $home }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+SSH_AUTH_SOCK={{ $home }}/.1password/agent.sock

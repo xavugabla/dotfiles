@@ -9,10 +9,134 @@ print_kv() {
   printf '%-22s %s\n' "$1:" "$2"
 }
 
+env_state() {
+  if [ -n "${!1:-}" ]; then
+    printf 'set'
+  else
+    printf 'unset'
+  fi
+}
+
+socket_state() {
+  local label="$1"
+  local path="$2"
+  local mtime
+
+  if [ -S "$path" ]; then
+    mtime="$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$path" 2>/dev/null || stat -c '%y' "$path" 2>/dev/null || printf 'unknown')"
+    print_kv "$label" "present (mtime $mtime)"
+  else
+    print_kv "$label" "missing"
+  fi
+}
+
+file_mode() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null || printf 'unknown'
+}
+
+file_owner() {
+  stat -f '%Su:%Sg' "$1" 2>/dev/null || stat -c '%U:%G' "$1" 2>/dev/null || printf 'unknown'
+}
+
+mode_is_group_or_world_readable() {
+  local mode="$1"
+  local group other
+
+  case "$mode" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+
+  group=$((mode / 10 % 10))
+  other=$((mode % 10))
+  [ $((group & 4)) -ne 0 ] || [ $((other & 4)) -ne 0 ]
+}
+
+check_env_file_mode() {
+  local file="$1"
+  local mode base
+
+  base=${file##*/}
+  [ "$base" = ".envrc" ] && return 0
+  [ -f "$file" ] || return 0
+
+  mode="$(file_mode "$file")"
+  if mode_is_group_or_world_readable "$mode"; then
+    printf 'warning: %s is group/world readable (%s)\n' "$file" "$mode"
+    return 1
+  fi
+
+  return 0
+}
+
+scan_env_permissions() {
+  local root="$1"
+  local found=0 failed=0 file
+
+  [ -d "$root" ] || return 0
+  shopt -s nullglob
+  for file in "$root"/.env "$root"/.env.* "$root"/*.env "$root"/*.local.env; do
+    [ -e "$file" ] || continue
+    [ "${file##*/}" = ".envrc" ] && continue
+    found=1
+    check_env_file_mode "$file" || failed=1
+  done
+  shopt -u nullglob
+
+  if [ "$found" -eq 0 ]; then
+    print_kv "env files $root" "none"
+  elif [ "$failed" -eq 0 ]; then
+    print_kv "env files $root" "mode ok"
+  fi
+}
+
+scan_startup_secret_reads() {
+  local found=0
+  local file line line_no stripped
+  local files=(
+    "$HOME/.zshenv"
+    "$HOME/.zprofile"
+    "$HOME/.zshrc"
+    "$HOME/.zlogin"
+    "$HOME/.bash_profile"
+    "$HOME/.bashrc"
+    "$HOME/.profile"
+  )
+
+  for file in "${files[@]}"; do
+    [ -f "$file" ] || continue
+    line_no=0
+    while IFS= read -r line || [ -n "$line" ]; do
+      line_no=$((line_no + 1))
+      stripped="${line#"${line%%[![:space:]]*}"}"
+      case "$stripped" in
+        ''|\#*) continue ;;
+      esac
+
+      if printf '%s\n' "$line" | grep -Eq '(^|[^[:alnum:]_])op[[:space:]]+read([^[:alnum:]_]|$)'; then
+        printf 'warning: %s:%s runs op read during shell startup\n' "$file" "$line_no"
+        found=1
+      fi
+      if printf '%s\n' "$line" | grep -Eq '(^|[[:space:]])(export[[:space:]]+)?(GH_TOKEN|GITHUB_TOKEN)='; then
+        printf 'warning: %s:%s assigns a GitHub token during shell startup\n' "$file" "$line_no"
+        found=1
+      fi
+    done <"$file"
+  done
+
+  if [ "$found" -eq 0 ]; then
+    print_kv "startup secret reads" "none detected"
+  fi
+}
+
 section "identity"
 print_kv "user" "$(id -un)"
 print_kv "uid" "$(id -u)"
 print_kv "home" "$HOME"
+print_kv "home owner" "$(file_owner "$HOME")"
+if [ "$(id -un)" != "$(file_owner "$HOME" | cut -d: -f1)" ]; then
+  printf 'warning: HOME owner does not match current user\n'
+fi
+print_kv "umask" "$(umask)"
 print_kv "shell" "${SHELL:-unknown}"
 print_kv "xavuga profile" "${XAVUGA_PROFILE:-unset}"
 print_kv "machine role" "${XAVUGA_MACHINE_ROLE:-unset}"
@@ -40,6 +164,64 @@ if command -v ssh >/dev/null 2>&1; then
   print_kv "github agent" "$(ssh -G github.com 2>/dev/null | awk '/^identityagent / {print $2; exit}')"
 fi
 
+section "toolchain"
+mise_shims="$HOME/.local/share/mise/shims"
+if command -v mise >/dev/null 2>&1; then
+  print_kv "mise" "$(command -v mise)"
+else
+  print_kv "mise" "missing"
+fi
+node_path="$(command -v node 2>/dev/null || true)"
+if [ -n "$node_path" ]; then
+  print_kv "node" "$node_path"
+  case "$node_path" in
+    "$mise_shims"/*) ;;
+    *) printf 'warning: node resolves outside mise shims\n' ;;
+  esac
+else
+  print_kv "node" "missing"
+fi
+if [ -L "$HOME/.local/bin/node" ]; then
+  printf 'warning: ~/.local/bin/node symlink may bypass mise: %s\n' "$(readlink "$HOME/.local/bin/node")"
+elif [ -e "$HOME/.local/bin/node" ]; then
+  printf 'warning: ~/.local/bin/node exists and may bypass mise\n'
+fi
+
+section "auth hygiene"
+print_kv "GH_TOKEN" "$(env_state GH_TOKEN)"
+print_kv "GITHUB_TOKEN" "$(env_state GITHUB_TOKEN)"
+if command -v gh >/dev/null 2>&1; then
+  print_kv "gh" "$(command -v gh)"
+  if env -u GH_TOKEN -u GITHUB_TOKEN gh auth status >/dev/null 2>&1; then
+    print_kv "native gh auth" "ok"
+  else
+    print_kv "native gh auth" "missing or invalid"
+  fi
+else
+  print_kv "gh" "missing"
+fi
+scan_startup_secret_reads
+
+section "1password cli"
+if command -v op >/dev/null 2>&1; then
+  print_kv "op" "$(command -v op)"
+  print_kv "version" "$(op --version 2>/dev/null || printf 'unknown')"
+  op_config="$HOME/.config/op/config"
+  if [ -f "$op_config" ] && command -v jq >/dev/null 2>&1; then
+    print_kv "config accounts" "$(jq -r 'if .accounts == null then "none" elif (.accounts|type) == "array" then "configured (" + ((.accounts|length)|tostring) + ")" else "configured" end' "$op_config" 2>/dev/null || printf 'unknown')"
+    print_kv "latest signin" "$(jq -r 'if (.latest_signin // "") == "" then "unset" else "set" end' "$op_config" 2>/dev/null || printf 'unknown')"
+    print_kv "system auth signin" "$(jq -r 'if (.system_auth_latest_signin // "") == "" then "unset" else "set" end' "$op_config" 2>/dev/null || printf 'unknown')"
+  elif [ -f "$op_config" ]; then
+    print_kv "config" "present (jq missing)"
+  else
+    print_kv "config" "missing"
+  fi
+  socket_state "op daemon socket" "$HOME/.config/op/op-daemon.sock"
+  socket_state "app cli socket" "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/s.sock"
+else
+  print_kv "op" "missing"
+fi
+
 section "1password ssh"
 agent_path="$HOME/.1password/agent.sock"
 print_kv "agent path" "$agent_path"
@@ -49,6 +231,20 @@ else
   print_kv "agent socket" "missing"
 fi
 print_kv "SSH_AUTH_SOCK" "${SSH_AUTH_SOCK:-unset}"
+if [ -n "${SSH_AUTH_SOCK:-}" ] && [ ! -S "$SSH_AUTH_SOCK" ]; then
+  printf 'warning: SSH_AUTH_SOCK does not point to a live socket\n'
+fi
+
+section "local env files"
+scan_env_permissions "$PWD"
+if [ -f "$HOME/.config/dev/active-repos.txt" ]; then
+  while IFS= read -r repo || [ -n "$repo" ]; do
+    case "$repo" in
+      ''|\#*) continue ;;
+    esac
+    scan_env_permissions "$repo"
+  done <"$HOME/.config/dev/active-repos.txt"
+fi
 
 section "code roots"
 for path in "$HOME/code" "$HOME/code/daisychain" "$HOME/code/personal" "$HOME/code/proxima"; do

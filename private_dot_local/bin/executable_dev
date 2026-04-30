@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PATH="$HOME/.local/bin:$HOME/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
-
 OS="$(uname -s)"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 DEV_HOME="$CONFIG_HOME/dev"
 ACTIVE_REPOS_FILE="$DEV_HOME/active-repos.txt"
 ONEPASSWORD_HOME="$DEV_HOME/1password"
 CHEZMOI_SOURCE_DIR="${CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}"
+MISE_SHIMS="$HOME/.local/share/mise/shims"
+CANONICAL_DEV_PATH="$MISE_SHIMS:$HOME/.local/bin:$HOME/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+PATH="$CANONICAL_DEV_PATH${PATH:+:$PATH}"
 
 usage() {
   cat <<'EOF'
@@ -17,8 +19,11 @@ Usage:
   dev repos list
   dev repos add <repo-or-path> [...]
   dev repos remove <repo-or-path> [...]
+  dev env doctor [repo-or-path ...]
   dev git-sync [--quiet]
-  dev secrets sync <service|all>
+  dev secrets check [repo-or-path|service ...]
+  dev secrets sync [--legacy-op-inject] <service|all>
+  dev secrets render-op <service|all>
   dev visibility report [--extra-root /absolute/path]
 EOF
 }
@@ -41,6 +46,119 @@ canonicalize_path() {
     realpath "$1"
   else
     readlink -f "$1"
+  fi
+}
+
+secret_target_for_service() {
+  local service="$1"
+  local target_file="$ONEPASSWORD_HOME/${service}.target"
+
+  if [ -f "$target_file" ]; then
+    sed -n '1p' "$target_file"
+  else
+    printf '%s\n' "$CONFIG_HOME/$service/$service.env"
+  fi
+}
+
+file_mode() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null || printf 'unknown'
+}
+
+mode_is_group_or_world_readable() {
+  local mode="$1"
+  local group other
+
+  case "$mode" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+
+  group=$((mode / 10 % 10))
+  other=$((mode % 10))
+  [ $((group & 4)) -ne 0 ] || [ $((other & 4)) -ne 0 ]
+}
+
+check_env_file() {
+  local file="$1"
+  local mode base
+
+  base=${file##*/}
+  [ "$base" = ".envrc" ] && return 0
+
+  if [ ! -f "$file" ]; then
+    warn "env file missing: $file"
+    return 1
+  fi
+
+  mode="$(file_mode "$file")"
+  if mode_is_group_or_world_readable "$mode"; then
+    warn "env file is group/world readable ($mode): $file"
+    return 1
+  fi
+
+  say "env file ok ($mode): $file"
+}
+
+scan_env_path() {
+  local input="$1"
+  local found=0 failed=0 file
+
+  if [ -f "$input" ]; then
+    check_env_file "$input" || failed=1
+    return "$failed"
+  fi
+
+  if [ ! -d "$input" ]; then
+    warn "path not found: $input"
+    return 1
+  fi
+
+  shopt -s nullglob
+  for file in "$input"/.env "$input"/.env.* "$input"/*.env "$input"/*.local.env; do
+    [ -e "$file" ] || continue
+    [ "${file##*/}" = ".envrc" ] && continue
+    found=1
+    check_env_file "$file" || failed=1
+  done
+  shopt -u nullglob
+
+  if [ "$found" -eq 0 ]; then
+    say "no local env files found: $input"
+  fi
+
+  return "$failed"
+}
+
+check_node_resolution() {
+  local node_path local_node
+
+  node_path="$(command -v node 2>/dev/null || true)"
+  if [ -z "$node_path" ]; then
+    warn "node is not on PATH; install/activate it with mise"
+  else
+    case "$node_path" in
+      "$MISE_SHIMS"/*) say "node resolves through mise: $node_path" ;;
+      *) warn "node resolves outside mise shims: $node_path" ;;
+    esac
+  fi
+
+  local_node="$HOME/.local/bin/node"
+  if [ -L "$local_node" ]; then
+    warn "$local_node is a symlink to $(readlink "$local_node"); remove it if it bypasses mise"
+  elif [ -e "$local_node" ]; then
+    warn "$local_node exists and may bypass mise"
+  fi
+}
+
+run_with_timeout() {
+  local seconds="$1"
+  shift
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$seconds" "$@"
+  else
+    "$@"
   fi
 }
 
@@ -124,7 +242,7 @@ remove_repos() {
 bootstrap() {
   local required optional missing=()
 
-  local required_tools=(git gh ssh jq timeout)
+  local required_tools=(git gh ssh jq)
   if [ "$OS" = "Linux" ]; then
     required_tools+=(systemctl)
   fi
@@ -137,11 +255,14 @@ bootstrap() {
     warn "missing required tools: ${missing[*]}"
   fi
 
-  for optional in chezmoi direnv delta fzf zoxide op; do
+  for optional in chezmoi direnv delta fzf zoxide mise; do
     if ! command -v "$optional" >/dev/null 2>&1; then
       warn "missing optional tool: $optional"
     fi
   done
+  if ! command -v op >/dev/null 2>&1; then
+    warn "missing optional tool: op (only needed for explicit legacy 1Password template rendering)"
+  fi
 
   # 1Password SSH agent socket
   mkdir -p "$HOME/.1password"
@@ -151,6 +272,7 @@ bootstrap() {
     ln -sfn "$op_sock" "$HOME/.1password/agent.sock"
     if [ -e "$op_sock" ] || [ -S "$op_sock" ]; then
       say "linked 1Password SSH agent socket"
+      export SSH_AUTH_SOCK="$HOME/.1password/agent.sock"
     else
       warn "1Password SSH agent socket not found at $op_sock"
     fi
@@ -158,10 +280,13 @@ bootstrap() {
     # Linux: 1Password creates the socket directly at ~/.1password/agent.sock
     if [ -S "$HOME/.1password/agent.sock" ]; then
       say "1Password SSH agent socket is active"
+      export SSH_AUTH_SOCK="$HOME/.1password/agent.sock"
     else
       warn "1Password SSH agent socket not found — enable it in 1Password > Settings > Developer"
     fi
   fi
+
+  check_node_resolution
 
   if command -v chezmoi >/dev/null 2>&1 && [ -d "$CHEZMOI_SOURCE_DIR" ]; then
     chezmoi apply --source="$CHEZMOI_SOURCE_DIR"
@@ -171,6 +296,7 @@ bootstrap() {
   fi
 
   if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl --user set-environment "PATH=$CANONICAL_DEV_PATH" "SSH_AUTH_SOCK=$HOME/.1password/agent.sock"
     systemctl --user daemon-reload
     systemctl --user enable --now dev-git-fetch.timer
     say "reloaded user-systemd and enabled dev-git-fetch.timer"
@@ -201,7 +327,7 @@ git_sync() {
       continue
     fi
 
-    if timeout 180 git -C "$repo" fetch --all --prune --tags --quiet; then
+    if run_with_timeout 180 git -C "$repo" fetch --all --prune --tags --quiet; then
       ok=$((ok + 1))
       [ "$quiet" -eq 1 ] || say "synced: $repo"
     else
@@ -214,20 +340,15 @@ git_sync() {
   [ "$failed" -eq 0 ]
 }
 
-sync_secret() {
+render_op_secret() {
   local service="$1"
   local template="$ONEPASSWORD_HOME/${service}.env.tpl"
-  local target_file="$ONEPASSWORD_HOME/${service}.target"
   local target tmp
 
-  command -v op >/dev/null 2>&1 || die "1Password CLI is not installed"
+  command -v op >/dev/null 2>&1 || die "1Password CLI is not installed; this legacy path is optional"
   [ -f "$template" ] || die "template not found: $template"
 
-  if [ -f "$target_file" ]; then
-    target=$(<"$target_file")
-  else
-    target="$CONFIG_HOME/$service/$service.env"
-  fi
+  target="$(secret_target_for_service "$service")"
 
   mkdir -p "$(dirname "$target")"
   tmp=$(mktemp)
@@ -238,22 +359,116 @@ sync_secret() {
   say "rendered secrets: $service -> $target"
 }
 
-sync_secrets() {
-  local service
-  [ "$#" -eq 1 ] || die "dev secrets sync requires a service name or 'all'"
+render_op_secrets() {
+  local service found=0
+  [ "$#" -eq 1 ] || die "dev secrets render-op requires a service name or 'all'"
 
   if [ "$1" = all ]; then
     shopt -s nullglob
     for service in "$ONEPASSWORD_HOME"/*.env.tpl; do
+      found=1
       service=${service##*/}
       service=${service%.env.tpl}
-      sync_secret "$service"
+      render_op_secret "$service"
     done
     shopt -u nullglob
+    [ "$found" -eq 1 ] || warn "no legacy 1Password templates found in $ONEPASSWORD_HOME"
     return 0
   fi
 
-  sync_secret "$1"
+  render_op_secret "$1"
+}
+
+secrets_guidance() {
+  cat <<'EOF'
+`dev secrets sync` no longer runs `op inject` by default.
+
+Use direnv with a per-repo `.envrc` and gitignored `.env.local` for local development.
+Use GCP Secret Manager, Cloud Run secrets, or the CI secret store for deployed and automated workloads.
+
+Checks:
+  dev env doctor [repo-or-path ...]
+  dev secrets check [repo-or-path|service ...]
+
+Explicit legacy rendering:
+  dev secrets sync --legacy-op-inject <service|all>
+  dev secrets render-op <service|all>
+EOF
+}
+
+sync_secrets() {
+  local legacy=0
+
+  if [ "${1:-}" = "--legacy-op-inject" ]; then
+    legacy=1
+    shift
+  fi
+
+  if [ "$legacy" -eq 0 ]; then
+    secrets_guidance
+    return 0
+  fi
+
+  render_op_secrets "$@"
+}
+
+secrets_check() {
+  local arg target failed=0
+
+  if [ "$#" -eq 0 ]; then
+    scan_env_path "$PWD" || failed=1
+    return "$failed"
+  fi
+
+  for arg in "$@"; do
+    case "$arg" in
+      /*|./*|../*|*/*)
+        scan_env_path "$arg" || failed=1
+        ;;
+      *)
+        if [ -e "$arg" ]; then
+          scan_env_path "$arg" || failed=1
+        else
+          target="$(secret_target_for_service "$arg")"
+          check_env_file "$target" || failed=1
+        fi
+        ;;
+    esac
+  done
+
+  return "$failed"
+}
+
+env_doctor() {
+  local config="$CONFIG_HOME/direnv/direnv.toml"
+
+  say "direnv:"
+  if command -v direnv >/dev/null 2>&1; then
+    direnv status || true
+  else
+    warn "direnv is not installed"
+  fi
+
+  say ""
+  say "direnv config:"
+  if [ -f "$config" ]; then
+    say "$config"
+    if grep -Eq '^[[:space:]]*(prefix|exact)[[:space:]]*=' "$config"; then
+      grep -E '^[[:space:]]*(prefix|exact)[[:space:]]*=' "$config" || true
+    else
+      say "no implicit whitelist entries"
+    fi
+  else
+    warn "direnv config missing: $config"
+  fi
+
+  say ""
+  say "env file permissions:"
+  if [ "$#" -eq 0 ]; then
+    secrets_check "$PWD"
+  else
+    secrets_check "$@"
+  fi
 }
 
 visibility_report() {
@@ -307,6 +522,19 @@ main() {
           ;;
       esac
       ;;
+    env)
+      shift
+      case "${1:-}" in
+        doctor)
+          shift
+          env_doctor "$@"
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+      ;;
     git-sync)
       shift
       git_sync "$@"
@@ -314,9 +542,17 @@ main() {
     secrets)
       shift
       case "${1:-}" in
+        check)
+          shift
+          secrets_check "$@"
+          ;;
         sync)
           shift
           sync_secrets "$@"
+          ;;
+        render-op)
+          shift
+          render_op_secrets "$@"
           ;;
         *)
           usage

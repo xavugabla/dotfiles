@@ -121,6 +121,36 @@ CURSOR_SQLITE_KEY_PATTERNS = (
     re.compile(r"approvedCommand", re.IGNORECASE),
 )
 
+SHELL_STARTUP_FILES = (
+    HOME / ".zshenv",
+    HOME / ".zprofile",
+    HOME / ".zshrc",
+    HOME / ".zlogin",
+    HOME / ".bash_profile",
+    HOME / ".bashrc",
+    HOME / ".profile",
+    HOME / ".local/share/chezmoi/dot_zshrc.tmpl",
+    HOME / ".local/share/chezmoi/dot_bashrc.tmpl",
+)
+SHELL_SECRET_PATTERNS = (
+    (
+        re.compile(r"(^|[^A-Za-z0-9_])op\s+read([^A-Za-z0-9_]|$)"),
+        "runs `op read` during shell startup",
+    ),
+    (
+        re.compile(r"(^|\s)(export\s+)?(GH_TOKEN|GITHUB_TOKEN)="),
+        "assigns a GitHub token during shell startup",
+    ),
+)
+GH_HOSTS_PATH = CONFIG_HOME / "gh" / "hosts.yml"
+OP_CONFIG_PATH = CONFIG_HOME / "op" / "config"
+OP_DAEMON_SOCKET = CONFIG_HOME / "op" / "op-daemon.sock"
+ONEPASSWORD_CLI_SOCKET = (
+    HOME / "Library/Group Containers/2BUA8C4S2C.com.1password/t/s.sock"
+)
+ONEPASSWORD_SSH_SOCKET = HOME / ".1password" / "agent.sock"
+LEGACY_OP_TEMPLATE_DIR = CONFIG_HOME / "dev" / "1password"
+
 GIT_DESTRUCTIVE_PATTERNS = (
     re.compile(r"\bgit\s+commit\b"),
     re.compile(r"\bgit\s+push\b"),
@@ -377,6 +407,138 @@ def collect_secret_risks(parsed: Any, source: str) -> list[dict[str, str]]:
 
     walk(parsed, [])
     return risks
+
+
+def socket_state(path: Path) -> dict[str, Any]:
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return {"path": display_path(path), "present": False, "mtime_epoch": None}
+    return {
+        "path": display_path(path),
+        "present": path.is_socket(),
+        "mtime_epoch": int(stat_result.st_mtime),
+    }
+
+
+def collect_shell_startup_secret_matches() -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for path in SHELL_STARTUP_FILES:
+        text = read_text(path)
+        if text is None:
+            continue
+        for line_no, raw_line in enumerate(text.splitlines(), start=1):
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            for pattern, message in SHELL_SECRET_PATTERNS:
+                if pattern.search(raw_line):
+                    matches.append(
+                        {
+                            "source": display_path(path),
+                            "line": line_no,
+                            "message": message,
+                        }
+                    )
+    return matches
+
+
+def gh_hosts_state() -> dict[str, str]:
+    text = read_text(GH_HOSTS_PATH)
+    if text is None:
+        state = "missing"
+    elif not text.strip() or text.strip() == "{}":
+        state = "empty"
+    elif "github.com:" in text:
+        state = "configured"
+    else:
+        state = "present"
+    return {"path": display_path(GH_HOSTS_PATH), "state": state}
+
+
+def op_config_state() -> dict[str, str]:
+    data = parse_json(OP_CONFIG_PATH)
+    if not isinstance(data, dict):
+        return {
+            "path": display_path(OP_CONFIG_PATH),
+            "state": "missing or unreadable",
+            "accounts": "unknown",
+            "latest_signin": "unknown",
+            "system_auth_latest_signin": "unknown",
+        }
+
+    accounts = data.get("accounts")
+    if accounts is None:
+        accounts_state = "none"
+    elif isinstance(accounts, list):
+        accounts_state = f"configured ({len(accounts)})"
+    else:
+        accounts_state = "configured"
+
+    return {
+        "path": display_path(OP_CONFIG_PATH),
+        "state": "present",
+        "accounts": accounts_state,
+        "latest_signin": "set" if data.get("latest_signin") else "unset",
+        "system_auth_latest_signin": (
+            "set" if data.get("system_auth_latest_signin") else "unset"
+        ),
+    }
+
+
+def scan_workstation_auth() -> dict[str, Any]:
+    shell_matches = collect_shell_startup_secret_matches()
+    gh_hosts = gh_hosts_state()
+    op_config = op_config_state()
+    legacy_op_templates = sorted(LEGACY_OP_TEMPLATE_DIR.glob("*.env.tpl"))
+    sockets = {
+        "1password ssh": socket_state(ONEPASSWORD_SSH_SOCKET),
+        "1password cli": socket_state(ONEPASSWORD_CLI_SOCKET),
+        "op daemon": socket_state(OP_DAEMON_SOCKET),
+    }
+    token_env = {
+        "GH_TOKEN": "set" if os.environ.get("GH_TOKEN") else "unset",
+        "GITHUB_TOKEN": "set" if os.environ.get("GITHUB_TOKEN") else "unset",
+    }
+
+    risks: list[dict[str, str]] = []
+    for match in shell_matches:
+        risks.append(
+            {
+                "source": match["source"],
+                "message": f"line {match['line']} {match['message']}",
+            }
+        )
+
+    if gh_hosts["state"] in {"missing", "empty"}:
+        risks.append(
+            {
+                "source": gh_hosts["path"],
+                "message": "GitHub CLI has no native host auth; use `gh auth login` instead of shell-startup token exports",
+            }
+        )
+
+    if (
+        legacy_op_templates
+        and op_config["accounts"] == "none"
+        and not sockets["1password cli"]["present"]
+    ):
+        risks.append(
+            {
+                "source": op_config["path"],
+                "message": "legacy 1Password env templates exist, but CLI account/app-integration auth is unavailable",
+            }
+        )
+
+    return {
+        "token_env": token_env,
+        "gh_hosts": gh_hosts,
+        "op_config": op_config,
+        "legacy_op_template_count": len(legacy_op_templates),
+        "sockets": sockets,
+        "shell_startup_secret_matches": shell_matches,
+        "risks": risks,
+    }
 
 
 def collect_wildcard_permission_risks(
@@ -1098,6 +1260,7 @@ def scan(
         "repos": [],
         "vaults": [],
         "cursor_sqlite": None,
+        "workstation_auth": scan_workstation_auth(),
     }
 
     detected_tools: set[str] = set()
@@ -1235,6 +1398,50 @@ def render_markdown(data: dict[str, Any]) -> str:
             lines.append(f"  - Files: {files}")
     lines.append("")
 
+    auth = data.get("workstation_auth")
+    if auth:
+        lines.append("## Workstation auth")
+        token_env = auth.get("token_env") or {}
+        lines.append(
+            "- Current token env: "
+            f"GH_TOKEN=`{token_env.get('GH_TOKEN', 'unknown')}` · "
+            f"GITHUB_TOKEN=`{token_env.get('GITHUB_TOKEN', 'unknown')}`"
+        )
+        gh_hosts = auth.get("gh_hosts") or {}
+        lines.append(
+            "- GitHub CLI native auth: "
+            f"`{gh_hosts.get('state', 'unknown')}` at `{gh_hosts.get('path', '?')}`"
+        )
+        op_config = auth.get("op_config") or {}
+        lines.append(
+            "- 1Password CLI config: "
+            f"accounts=`{op_config.get('accounts', 'unknown')}` · "
+            f"latest_signin=`{op_config.get('latest_signin', 'unknown')}` · "
+            f"system_auth_latest_signin=`{op_config.get('system_auth_latest_signin', 'unknown')}`"
+        )
+        lines.append(
+            "- Legacy 1Password env templates: "
+            f"`{auth.get('legacy_op_template_count', 0)}`"
+        )
+        sockets = auth.get("sockets") or {}
+        if sockets:
+            lines.append("- 1Password sockets:")
+            for name, state in sockets.items():
+                status = "present" if state.get("present") else "missing"
+                mtime = state.get("mtime_epoch")
+                suffix = f" · mtime_epoch=`{mtime}`" if mtime is not None else ""
+                lines.append(f"  - `{name}`: `{status}` at `{state.get('path', '?')}`{suffix}")
+        shell_matches = auth.get("shell_startup_secret_matches") or []
+        if shell_matches:
+            lines.append("- Shell startup secret reads:")
+            for match in shell_matches:
+                lines.append(
+                    f"  - `{match['source']}:{match['line']}` {match['message']}"
+                )
+        else:
+            lines.append("- Shell startup secret reads: None")
+        lines.append("")
+
     lines.append("## Obsidian vaults")
     if not data.get("vaults"):
         lines.append("- None")
@@ -1332,6 +1539,8 @@ def render_markdown(data: dict[str, Any]) -> str:
 
     lines.append("## Risk flags")
     risks: list[dict[str, str]] = []
+    if data.get("workstation_auth"):
+        risks.extend(data["workstation_auth"].get("risks", []))
     for entry in data["global_roots"]:
         risks.extend(entry["risks"])
     for repo in data["repos"]:

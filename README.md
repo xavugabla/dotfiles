@@ -26,6 +26,6 @@ Available profiles:
 - Use `dev-user-doctor` inside any profile to inspect the rendered identity, Git, SSH-agent, repo-root, and Homebrew state without reading Keychain contents.
 - Repo-root Git identity fragments separate DaisyChain, other-projects, and Proxima without duplicating the shared defaults.
 - `~/.config/dev/Brewfile` tracks the baseline package inventory only. Use `brew bundle --file ~/.config/dev/Brewfile` when you want Homebrew to evaluate it. Services like `ollama` and `postgresql@16` are installed but intentionally not configured as always-on background services on macOS.
-- `mise` is intentionally not part of the baseline yet. The current baseline remains `pyenv` plus per-user Node management until a real shared toolchain policy is chosen.
-- Machine-specific secrets are not stored here.
-- Privileged package setup lives in `~/.config/dev/install-apt.sh` after apply.
+- `mise` is the canonical Node/toolchain entry point. Shells and Linux user-systemd put `~/.local/share/mise/shims` ahead of legacy managers and editor-bundled runtimes.
+- Machine-specific secrets are not stored here. Local repo secrets load through direnv and gitignored env files; automation uses cloud/CI secret stores; 1Password is reserved for human SSH/agent flows and explicit legacy rendering.
+- Privileged Linux package setup lives in `~/.config/dev/install-apt.sh` after apply. Run it with `--with-1password` only when that machine should install the 1Password app/CLI packages.

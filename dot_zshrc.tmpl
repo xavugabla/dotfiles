@@ -14,7 +14,7 @@ setopt APPEND_HISTORY
 
 # Path
 typeset -U path
-path=(~/.local/bin ~/bin $path)
+path=("$HOME/.local/share/mise/shims" "$HOME/.local/bin" "$HOME/bin" $path)
 
 # Aliases
 alias ll='ls -alF'
@@ -46,18 +46,11 @@ if [[ -d "$HOME/.pyenv" ]]; then
     eval "$(pyenv init -)"
 fi
 
-# nvm (lazy load)
-lazy_load_nvm() {
-    [[ -n "${__NVM_LOADED:-}" ]] && return 0
-    export NVM_DIR="$HOME/.nvm"
-    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
-    [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
-    export __NVM_LOADED=1
-}
-
-for cmd in nvm node npm npx pnpm yarn corepack; do
-    eval "$cmd() { unfunction $cmd 2>/dev/null; lazy_load_nvm; $cmd \"\$@\" }"
-done
+# mise is the managed Node/toolchain entry point. Keep it after pyenv init so
+# its shims remain ahead of legacy managers and editor-bundled runtimes.
+if (( $+commands[mise] )); then
+    eval "$(mise activate zsh)"
+fi
 
 # direnv
 if (( $+commands[direnv] )); then

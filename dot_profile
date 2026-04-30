@@ -8,8 +8,9 @@ path_prepend() {
   esac
 }
 
-path_prepend "$HOME/.local/bin"
 path_prepend "$HOME/bin"
+path_prepend "$HOME/.local/bin"
+path_prepend "$HOME/.local/share/mise/shims"
 export PATH
 
 if [ -n "${BASH_VERSION:-}" ] && [ -f "$HOME/.bashrc" ]; then

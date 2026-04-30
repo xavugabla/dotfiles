@@ -1,4 +1,6 @@
 README.md
+**/__pycache__
+**/*.pyc
 
 # machine-specific — managed by `dev repos add/remove`
 .config/dev/active-repos.txt
@@ -8,6 +10,7 @@ README.md
 .bashrc
 .profile
 .config/systemd
+.config/environment.d
 .config/dev/install-apt.sh
 # editor settings live under ~/Library/Application Support/ on mac
 .config/Code

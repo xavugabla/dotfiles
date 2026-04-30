@@ -1,5 +1,13 @@
 # ~/.zprofile: login shell configuration (macOS)
 
+path_prepend() {
+    [ -d "$1" ] || return 0
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) PATH="$1${PATH:+:$PATH}" ;;
+    esac
+}
+
 # Homebrew
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
@@ -8,3 +16,10 @@ if [[ -d "$HOME/.pyenv" ]]; then
     export PYENV_ROOT="$HOME/.pyenv"
     eval "$(pyenv init --path)"
 fi
+
+path_prepend "$HOME/bin"
+path_prepend "$HOME/.local/bin"
+path_prepend "$HOME/.local/share/mise/shims"
+export PATH
+
+unset -f path_prepend
