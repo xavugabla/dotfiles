@@ -8,8 +8,8 @@ usage() {
   cat <<'EOF'
 Usage: install-apt.sh [--with-1password]
 
-Installs baseline Linux developer packages. 1Password packages are optional
-because workstation health no longer depends on `op` or `op inject`.
+Installs baseline Linux developer packages. 1Password packages are optional and
+should only be installed on machines that need them for human SSH and Git auth.
 EOF
 }
 
@@ -37,8 +37,18 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+apt-get update
+apt-get install -y ca-certificates curl gnupg
+
+install -d -m 0755 /etc/apt/keyrings
+curl -fSs https://mise.jdx.dev/gpg-key.pub \
+  | tee /etc/apt/keyrings/mise-archive-keyring.asc >/dev/null
+
+cat >/etc/apt/sources.list.d/mise.list <<'EOF'
+deb [signed-by=/etc/apt/keyrings/mise-archive-keyring.asc] https://mise.jdx.dev/deb stable main
+EOF
+
 if [ "$with_1password" -eq 1 ]; then
-  install -d -m 0755 /etc/apt/keyrings
   curl -fsSL https://downloads.1password.com/linux/keys/1password.asc \
     | gpg --dearmor --yes -o /usr/share/keyrings/1password-archive-keyring.gpg
 
@@ -57,19 +67,21 @@ fi
 
 apt-get update
 apt-get install -y \
-  pipx \
+  bat \
   direnv \
+  fd-find \
+  gh \
+  git \
+  jq \
+  mise \
+  pipx \
   fzf \
   git-delta \
+  ripgrep \
   shellcheck \
   shfmt \
+  tmux \
   zoxide
-
-if apt-cache show mise >/dev/null 2>&1; then
-  apt-get install -y mise
-else
-  printf '%s\n' 'warning: apt package "mise" is unavailable; install mise separately so Node resolves through ~/.local/share/mise/shims' >&2
-fi
 
 if [ "$with_1password" -eq 1 ]; then
   apt-get install -y \
