@@ -1,146 +1,18 @@
-{{- $profileName := includeTemplate "profile-name.tmpl" . | trim -}}
-{{- $profile := index .profiles $profileName -}}
-{{- $onepasswordAgent := includeTemplate "onepassword-agent.tmpl" . | trim -}}
 # ~/.bashrc: interactive shell configuration.
+
+if [ -f "$HOME/.config/shell/env.sh" ]; then
+  . "$HOME/.config/shell/env.sh"
+fi
 
 case $- in
   *i*) ;;
   *) return ;;
 esac
 
-HISTCONTROL=ignoreboth:erasedups
-HISTSIZE=5000
-HISTFILESIZE=20000
-HISTIGNORE='ls:ll:l:la:pwd:clear:history:exit'
-
-shopt -s histappend
-shopt -s checkwinsize
-
-PROMPT_COMMAND="history -a; history -n${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
-
-path_prepend() {
-  [ -d "$1" ] || return 0
-  case ":$PATH:" in
-    *":$1:"*) ;;
-    *) PATH="$1${PATH:+:$PATH}" ;;
-  esac
-}
-
-{{ includeTemplate "dev-shell-path-prepend.sh.tmpl" . }}
-
-if [ -d "$HOME/.pyenv" ]; then
-  export PYENV_ROOT="$HOME/.pyenv"
-  path_prepend "$PYENV_ROOT/bin"
-fi
-export PATH
-export XAVUGA_PROFILE="{{ $profileName }}"
-export XAVUGA_MACHINE_ROLE="{{ $profile.machine_role }}"
-export XAVUGA_REPO_ROOT_DAISYCHAIN="$HOME/{{ (index .contexts "daisychain").repo_root }}"
-export XAVUGA_REPO_ROOT_OTHER_PROJECTS="$HOME/{{ (index .contexts "other_projects").repo_root }}"
-export XAVUGA_REPO_ROOT_PROXIMA="$HOME/{{ (index .contexts "proxima").repo_root }}"
-
-if [ -S "{{ $onepasswordAgent }}" ]; then
-  export SSH_AUTH_SOCK="{{ $onepasswordAgent }}"
-else
-  unset SSH_AUTH_SOCK
-  unset SSH_AGENT_PID
+if [ -n "${MISE_BIN:-}" ] && [ -x "$MISE_BIN" ]; then
+  eval "$("$MISE_BIN" activate bash)"
 fi
 
-if [ -x /usr/bin/lesspipe ]; then
-  eval "$(SHELL=/bin/sh lesspipe)"
-fi
-
-if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
-  debian_chroot=$(cat /etc/debian_chroot)
-fi
-
-case "$TERM" in
-  xterm-color|*-256color) color_prompt=yes ;;
-esac
-
-if [ -n "${force_color_prompt:-}" ]; then
-  if [ -x /usr/bin/tput ] && tput setaf 1 >/dev/null 2>&1; then
-    color_prompt=yes
-  else
-    color_prompt=
-  fi
-fi
-
-if [ "${color_prompt:-}" = yes ]; then
-  PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-else
-  PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
-fi
-unset color_prompt force_color_prompt
-
-case "$TERM" in
-  xterm*|rxvt*)
-    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
-    ;;
-esac
-
-if [ -x /usr/bin/dircolors ]; then
-  if [ -r "$HOME/.dircolors" ]; then
-    eval "$(dircolors -b "$HOME/.dircolors")"
-  else
-    eval "$(dircolors -b)"
-  fi
-  alias ls='ls --color=auto'
-  alias grep='grep --color=auto'
-  alias fgrep='fgrep --color=auto'
-  alias egrep='egrep --color=auto'
-fi
-
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
-alias gs='git status -sb'
-
-# gcloud config switching (per-shell, not global)
-alias gdc='export CLOUDSDK_ACTIVE_CONFIG_NAME={{ (index .contexts "daisychain").gcloud_config }}'
-alias gpx='export CLOUDSDK_ACTIVE_CONFIG_NAME={{ (index .contexts "proxima").gcloud_config }}'
-
-if [ -f "$HOME/.bash_aliases" ]; then
-  . "$HOME/.bash_aliases"
-fi
-
-if [ -r /usr/share/bash-completion/bash_completion ]; then
-  . /usr/share/bash-completion/bash_completion
-elif [ -r /etc/bash_completion ]; then
-  . /etc/bash_completion
-fi
-
-if [ -n "${PYENV_ROOT:-}" ] && command -v pyenv >/dev/null 2>&1; then
-  eval "$(pyenv init - bash)"
-fi
-
-if command -v mise >/dev/null 2>&1; then
-  eval "$(mise activate bash)"
-fi
-
-if command -v direnv >/dev/null 2>&1; then
-  eval "$(direnv hook bash)"
-fi
-
-if command -v zoxide >/dev/null 2>&1; then
-  eval "$(zoxide init bash)"
-fi
-
-if command -v fzf >/dev/null 2>&1 && command -v fd >/dev/null 2>&1; then
-  export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
-fi
-
-if [ "${TERM_PROGRAM:-}" = "WezTerm" ]; then
-  for wezterm_shell_integration in \
-    /Applications/WezTerm.app/Contents/Resources/wezterm.sh \
-    /opt/homebrew/share/wezterm/wezterm.sh \
-    /usr/local/share/wezterm/wezterm.sh \
-    /usr/share/wezterm/wezterm.sh
-  do
-    if [ -r "$wezterm_shell_integration" ]; then
-      . "$wezterm_shell_integration"
-      break
-    fi
-  done
-  unset wezterm_shell_integration
+if [ -f "$HOME/.config/shell/interactive.bash.sh" ]; then
+  . "$HOME/.config/shell/interactive.bash.sh"
 fi
