@@ -12,8 +12,10 @@ _archive/**
 # linux-only
 .bashrc
 .profile
+.tmux.conf
 .config/systemd
 .config/environment.d
+.config/shell
 .config/dev/install-apt.sh
 # editor settings live under ~/Library/Application Support/ on mac
 .config/Code
