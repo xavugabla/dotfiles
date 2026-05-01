@@ -241,6 +241,7 @@ remove_repos() {
 
 bootstrap() {
   local required optional missing=()
+  local optional_linux_tools=(tmux rg fd bat)
 
   local required_tools=(git gh ssh jq)
   if [ "$OS" = "Linux" ]; then
@@ -260,6 +261,13 @@ bootstrap() {
       warn "missing optional tool: $optional"
     fi
   done
+  if [ "$OS" = "Linux" ]; then
+    for optional in "${optional_linux_tools[@]}"; do
+      if ! command -v "$optional" >/dev/null 2>&1; then
+        warn "missing optional tool: $optional"
+      fi
+    done
+  fi
   if ! command -v op >/dev/null 2>&1; then
     warn "missing optional tool: op (only needed for explicit legacy 1Password template rendering)"
   fi
@@ -295,8 +303,27 @@ bootstrap() {
     warn "chezmoi source not applied"
   fi
 
+  if [ "$OS" = "Linux" ] && command -v mise >/dev/null 2>&1; then
+    mise trust -a
+    mise install
+    mise reshim
+    say "installed mise-managed tools"
+  fi
+
   if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
-    systemctl --user set-environment "PATH=$CANONICAL_DEV_PATH" "SSH_AUTH_SOCK=$HOME/.1password/agent.sock"
+    local clean_path
+    clean_path="$(env -i \
+      HOME="$HOME" \
+      USER="${USER:-$(id -un)}" \
+      LOGNAME="${LOGNAME:-${USER:-$(id -un)}}" \
+      SHELL=/bin/bash \
+      TERM="${TERM:-xterm-256color}" \
+      bash -lc 'printf %s "$PATH"')"
+    systemctl --user set-environment PATH="$clean_path" SSH_AUTH_SOCK="$HOME/.1password/agent.sock"
+    if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+      env PATH="$clean_path" SSH_AUTH_SOCK="$HOME/.1password/agent.sock" \
+        dbus-update-activation-environment --systemd PATH SSH_AUTH_SOCK
+    fi
     systemctl --user daemon-reload
     systemctl --user enable --now dev-git-fetch.timer
     say "reloaded user-systemd and enabled dev-git-fetch.timer"
