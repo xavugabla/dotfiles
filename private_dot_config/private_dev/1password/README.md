@@ -9,8 +9,8 @@ Create one template per service:
   writes to `~/.config/SERVICE/SERVICE.env`.
 
 Examples:
-- `central-api.env.tpl`
-- `central-api.target`
+- `example-service.env.tpl`
+- `example-service.target`
 
 After editing templates, render explicitly with:
 
