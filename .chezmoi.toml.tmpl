@@ -6,3 +6,10 @@
 {{- else }}
     onepasswordAgent = "~/.1password/agent.sock"
 {{- end }}
+
+[age]
+{{- if and (hasKey . "security") (hasKey .security "chezmoi_age_key_file") }}
+    identity = "{{ .security.chezmoi_age_key_file }}"
+{{- else }}
+    identity = "~/.config/chezmoi/key.txt.age"
+{{- end }}

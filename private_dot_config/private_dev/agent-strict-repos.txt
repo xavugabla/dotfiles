@@ -1,0 +1,3 @@
+# Absolute repo paths that should enforce strict agent policy blocks.
+# All repos not listed here are eligible for lax policy rollout.
+/Users/fxbc/code/daisychain/elo-backend-dev

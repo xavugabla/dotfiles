@@ -1,0 +1,13 @@
+# AGENTS
+
+This is the default behavior baseline for work started under `~/code`.
+Repository-level strict overrides are intentionally rare.
+
+<!-- dev-agent-policy:start -->
+## Managed Agent Policy (Default Lax)
+- Scope: default to the active repo/path under `~/code`; avoid unrelated trees unless asked.
+- Workflow: keep momentum on straightforward tasks and ask only when uncertainty is material.
+- Git: commits/pushes/branches/PRs require explicit user intent; avoid destructive git unless explicitly requested.
+- Secrets: never add plaintext secrets; prefer env references and approved secret stores.
+- Validation: run lightweight checks relevant to modified files and report blockers clearly.
+<!-- dev-agent-policy:end -->

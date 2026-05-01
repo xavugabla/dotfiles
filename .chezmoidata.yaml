@@ -11,9 +11,14 @@ contexts:
     gitconfig_path: ~/.gitconfig-proxima
     gcloud_config: proxima
 
+security:
+  chezmoi_age_key_file: ~/.config/chezmoi/key.txt.age
+  require_1password_for_chezmoi_age: true
+
 profiles:
   meta_mac:
     machine_role: meta
+    onepassword_ssh_agent: true
     selector:
       os: darwin
       usernames:
@@ -25,6 +30,7 @@ profiles:
       - proxima
   DC_OS:
     machine_role: daisychain
+    onepassword_ssh_agent: true
     selector:
       os: darwin
       usernames:
@@ -34,6 +40,7 @@ profiles:
       - daisychain
   XA_OS:
     machine_role: other_projects
+    onepassword_ssh_agent: true
     selector:
       os: darwin
       usernames:
@@ -44,6 +51,7 @@ profiles:
       - proxima
   fx_linux:
     machine_role: linux_execution
+    onepassword_ssh_agent: false
     selector:
       os: linux
       usernames:

@@ -1,5 +1,7 @@
 Host *
+{{- if eq (includeTemplate "onepassword-enabled.tmpl" . | trim) "true" }}
     IdentityAgent "{{ includeTemplate "onepassword-agent.tmpl" . | trim }}"
+{{- end }}
 {{- if eq .chezmoi.os "darwin" }}
     AddKeysToAgent no
     UseKeychain no
@@ -14,4 +16,4 @@ Host github.com
 Host fx
     User xavier
     RequestTTY yes
-    RemoteCommand tmux new-session -A -s main
+    RemoteCommand sh -lc 'if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s main; fi; exec "${SHELL:-/bin/bash}" -l'

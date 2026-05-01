@@ -12,3 +12,12 @@ keeps global defaults conservative and documents the expected boundary:
   critical path.
 - Cursor per-chat allowlists are UI-managed; verify them with
   `dev visibility report` when changing machine policy.
+
+For cross-tool consistency, keep the managed policy block from
+`~/.config/dev/docs/AGENT_BASELINE.md` synchronized in:
+
+- `~/code/AGENTS.md` (default lax baseline)
+- strict override repos listed in `~/.config/dev/agent-strict-repos.txt`
+
+- `dev agent audit`
+- `dev agent sync` (safe autofix)

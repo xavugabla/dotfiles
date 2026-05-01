@@ -16,6 +16,10 @@ usage() {
   cat <<'EOF'
 Usage:
   dev bootstrap
+  dev auth ensure-chezmoi-age-key
+  dev agent audit [--repo /abs/path ...]
+  dev agent sync [--bootstrap] [--all-repos] [--repo /abs/path ...]
+  dev agent catalog [--repo /abs/path ...] [--include-worktrees]
   dev repos list
   dev repos add <repo-or-path> [...]
   dev repos remove <repo-or-path> [...]
@@ -24,6 +28,8 @@ Usage:
   dev secrets check [repo-or-path|service ...]
   dev secrets sync [--legacy-op-inject] <service|all>
   dev secrets render-op <service|all>
+  dev secrets seed-op-api --profile <name>
+  dev secrets profile-path <name>
   dev visibility report [--extra-root /absolute/path]
 EOF
 }
@@ -162,6 +168,309 @@ run_with_timeout() {
   fi
 }
 
+onepassword_ssh_enabled() {
+  local enabled
+
+  if command -v chezmoi >/dev/null 2>&1 && [ -d "$CHEZMOI_SOURCE_DIR" ]; then
+    enabled="$(chezmoi execute-template --source="$CHEZMOI_SOURCE_DIR" '{{ includeTemplate "onepassword-enabled.tmpl" . | trim }}' 2>/dev/null || printf 'false')"
+  else
+    enabled="false"
+  fi
+
+  [ "$enabled" = "true" ]
+}
+
+read_chezmoi_template() {
+  local template="$1"
+  if command -v chezmoi >/dev/null 2>&1 && [ -d "$CHEZMOI_SOURCE_DIR" ]; then
+    chezmoi execute-template --source="$CHEZMOI_SOURCE_DIR" "$template" 2>/dev/null || true
+  fi
+}
+
+expand_tilde_path() {
+  local path="$1"
+  case "$path" in
+    "~") printf '%s\n' "$HOME" ;;
+    "~/"*) printf '%s\n' "$HOME/${path#\~/}" ;;
+    "$HOME/~/"*) printf '%s\n' "$HOME/${path#"$HOME/~/"}" ;;
+    *) printf '%s\n' "$path" ;;
+  esac
+}
+
+has_encrypted_chezmoi_sources() {
+  python3 - "$CHEZMOI_SOURCE_DIR" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+if not root.is_dir():
+    print("0")
+    raise SystemExit(0)
+for path in root.rglob("*"):
+    if ".git" in path.parts:
+        continue
+    if path.is_file() and (path.name.startswith("encrypted_") or path.suffix == ".age"):
+        print("1")
+        raise SystemExit(0)
+print("0")
+PY
+}
+
+resolve_chezmoi_age_key_ref() {
+  local op_ref_file="$CONFIG_HOME/dev/chezmoi-age-key.ref"
+  local line
+
+  if [ -n "${CHEZMOI_AGE_KEY_OP_REF:-}" ]; then
+    printf '%s\n' "$CHEZMOI_AGE_KEY_OP_REF"
+    return 0
+  fi
+
+  if [ -f "$op_ref_file" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line#"${line%%[![:space:]]*}"}"
+      case "$line" in
+        ''|\#*) continue ;;
+      esac
+      printf '%s\n' "$line"
+      return 0
+    done <"$op_ref_file"
+  fi
+
+  printf '%s\n' ""
+}
+
+resolve_op_api_seed_manifest() {
+  local config_manifest="$CONFIG_HOME/dev/op-api-seed.json"
+  local source_manifest="$CHEZMOI_SOURCE_DIR/private_dot_config/private_dev/op-api-seed.json"
+
+  if [ -f "$config_manifest" ]; then
+    printf '%s\n' "$config_manifest"
+    return 0
+  fi
+  if [ -f "$source_manifest" ]; then
+    printf '%s\n' "$source_manifest"
+    return 0
+  fi
+
+  die "OP API seed manifest not found. Expected $config_manifest (or source fallback $source_manifest)"
+}
+
+secrets_seed_op_api() {
+  local manifest profile_args=() profile
+
+  manifest="$(resolve_op_api_seed_manifest)"
+  command -v op >/dev/null 2>&1 || die "1Password CLI (op) is required for secrets seed-op-api"
+  command -v python3 >/dev/null 2>&1 || die "python3 is required for secrets seed-op-api"
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --all)
+        die "dev secrets seed-op-api --all is disabled due 1Password CLI multi-account context issues; run one profile per command"
+        ;;
+      --profile)
+        shift
+        [ "$#" -gt 0 ] || die "missing value for --profile"
+        profile_args+=("$1")
+        ;;
+      *)
+        die "unknown secrets seed-op-api flag: $1"
+        ;;
+    esac
+    shift
+  done
+
+  if [ "${#profile_args[@]}" -eq 0 ]; then
+    mapfile -t profile_args < <(python3 - "$manifest" <<'PY'
+import json
+import sys
+data = json.loads(open(sys.argv[1], "r", encoding="utf-8").read())
+for profile in data.get("profiles", []):
+    name = profile.get("name")
+    if name:
+        print(name)
+PY
+)
+    die "missing --profile. Available profiles: ${profile_args[*]}"
+  fi
+
+  [ "${#profile_args[@]}" -eq 1 ] || die "dev secrets seed-op-api expects exactly one --profile"
+  profile="${profile_args[0]}"
+
+  python3 - "$manifest" "$profile" "$CONFIG_HOME" <<'PY'
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+requested_profile = sys.argv[2]
+config_home = Path(sys.argv[3])
+
+data = json.loads(manifest_path.read_text())
+profiles = data.get("profiles") or []
+include_regex = re.compile(data.get("include_regex") or r"(api|token|json|credential|client|secret|key)", re.I)
+exclude_regex = re.compile(data.get("exclude_regex") or r"(password|passphrase|otp|one[-_ ]?time|totp)", re.I)
+base_dir = config_home / "dev" / "auth" / "secrets"
+base_dir.mkdir(parents=True, exist_ok=True)
+
+def run_op(account_id, *args):
+    cmd = "OP_ACCOUNT={} op {}".format(
+        shlex.quote(account_id),
+        " ".join(shlex.quote(arg) for arg in args),
+    )
+    return subprocess.check_output(["sh", "-lc", cmd], text=True)
+
+def to_env_key(value):
+    value = re.sub(r"[^A-Za-z0-9]+", "_", value.upper()).strip("_")
+    value = re.sub(r"_+", "_", value)
+    if not value:
+        value = "VALUE"
+    if not re.match(r"^[A-Z_]", value):
+        value = f"V_{value}"
+    return value
+
+def env_quote(value):
+    value = value.replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\\r").replace("\n", "\\n")
+    return f'"{value}"'
+
+target = None
+for profile in profiles:
+    if profile.get("name") == requested_profile:
+        target = profile
+        break
+if target is None:
+    print(f"error: unknown profile '{requested_profile}'", file=sys.stderr)
+    sys.exit(1)
+
+name = target.get("name")
+account = target.get("account")
+vault = target.get("vault")
+output = target.get("output")
+account_email = target.get("account_email", account)
+vault_name = target.get("vault_name", vault)
+if not all([name, account, vault, output]):
+    print(f"error: profile '{name}' is missing required fields", file=sys.stderr)
+    sys.exit(1)
+
+items = json.loads(run_op(account, "item", "list", "--vault", vault, "--format", "json"))
+lines = [
+    f"# generated by dev secrets seed-op-api profile={name}",
+    f"# source account={account_email} vault={vault_name}",
+    "# excludes password-like fields by policy",
+    "",
+]
+used = defaultdict(int)
+included = 0
+skipped = 0
+
+for item in items:
+    item_id = item.get("id")
+    if not item_id:
+        continue
+    full = json.loads(run_op(account, "item", "get", item_id, "--vault", vault, "--format", "json"))
+    title = full.get("title") or item_id
+    for field in (full.get("fields") or []):
+        val = field.get("value")
+        if val is None or val == "":
+            continue
+        label = (field.get("label") or field.get("id") or "value").strip()
+        purpose = (field.get("purpose") or "").strip().upper()
+        field_type = (field.get("type") or "").strip().upper()
+        signature = f"{title} {label} {purpose} {field_type}"
+
+        if purpose == "PASSWORD" or exclude_regex.search(signature):
+            skipped += 1
+            continue
+        if not include_regex.search(signature):
+            skipped += 1
+            continue
+
+        key_base = to_env_key(f"OP_{title}_{label}")
+        used[key_base] += 1
+        key = key_base if used[key_base] == 1 else f"{key_base}_{used[key_base]}"
+        lines.append(f"{key}={env_quote(str(val))}")
+        included += 1
+
+target_file = base_dir / output
+target_file.write_text("\n".join(lines) + "\n")
+os.chmod(target_file, 0o600)
+print(f"seeded profile={name} file={target_file} items={len(items)} included={included} skipped={skipped}")
+PY
+}
+
+secrets_profile_path() {
+  local manifest profile="$1"
+
+  [ "$#" -eq 1 ] || die "dev secrets profile-path requires exactly one profile name"
+  manifest="$(resolve_op_api_seed_manifest)"
+
+  python3 - "$manifest" "$profile" "$CONFIG_HOME" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = Path(sys.argv[1])
+profile_name = sys.argv[2]
+config_home = Path(sys.argv[3])
+
+data = json.loads(manifest.read_text())
+profiles = data.get("profiles") or []
+for profile in profiles:
+    if profile.get("name") == profile_name:
+        output = profile.get("output")
+        if not output:
+            print(f"error: profile '{profile_name}' has no output file", file=sys.stderr)
+            raise SystemExit(1)
+        print(config_home / "dev" / "auth" / "secrets" / output)
+        raise SystemExit(0)
+
+print(f"error: unknown profile '{profile_name}'", file=sys.stderr)
+raise SystemExit(1)
+PY
+}
+
+require_chezmoi_age_key() {
+  local mode require_flag encrypted key_file key_file_expanded op_ref tmp
+  mode="${1:-auto}"
+  require_flag="$(read_chezmoi_template '{{- if and (hasKey . "security") (hasKey .security "require_1password_for_chezmoi_age") -}}{{ .security.require_1password_for_chezmoi_age }}{{- else -}}true{{- end -}}')"
+  encrypted="$(has_encrypted_chezmoi_sources)"
+
+  if [ "$mode" = "auto" ] && { [ "$require_flag" != "true" ] || [ "$encrypted" != "1" ]; }; then
+    return 0
+  fi
+
+  key_file="$(read_chezmoi_template '{{- if and (hasKey . "security") (hasKey .security "chezmoi_age_key_file") -}}{{ .security.chezmoi_age_key_file }}{{- else -}}~/.config/chezmoi/key.txt.age{{- end -}}')"
+  key_file_expanded="$(expand_tilde_path "${key_file:-~/.config/chezmoi/key.txt.age}")"
+
+  if [ -s "$key_file_expanded" ]; then
+    chmod 600 "$key_file_expanded" 2>/dev/null || true
+    return 0
+  fi
+
+  command -v op >/dev/null 2>&1 || die "chezmoi encrypted sources detected, but 1Password CLI (op) is unavailable"
+  op_ref="$(resolve_chezmoi_age_key_ref)"
+  [ -n "$op_ref" ] || die "chezmoi encrypted sources detected, but no key reference found. Set CHEZMOI_AGE_KEY_OP_REF or ~/.config/dev/chezmoi-age-key.ref"
+
+  tmp="$(mktemp)"
+  if ! op read "$op_ref" >"$tmp"; then
+    rm -f "$tmp"
+    die "failed to read chezmoi age key from 1Password reference: $op_ref"
+  fi
+  if ! grep -q '^AGE-SECRET-KEY-' "$tmp"; then
+    rm -f "$tmp"
+    die "1Password value did not look like an age private key (expected AGE-SECRET-KEY-...)"
+  fi
+
+  mkdir -p "$(dirname "$key_file_expanded")"
+  chmod 700 "$(dirname "$key_file_expanded")" 2>/dev/null || true
+  mv "$tmp" "$key_file_expanded"
+  chmod 600 "$key_file_expanded"
+  say "hydrated chezmoi age key: $key_file_expanded"
+}
+
 ensure_active_repos_file() {
   mkdir -p "$DEV_HOME"
   touch "$ACTIVE_REPOS_FILE"
@@ -241,6 +550,7 @@ remove_repos() {
 
 bootstrap() {
   local required optional missing=()
+  local onepassword_ssh=0
 
   local required_tools=(git gh ssh jq)
   if [ "$OS" = "Linux" ]; then
@@ -264,31 +574,42 @@ bootstrap() {
     warn "missing optional tool: op (only needed for explicit legacy 1Password template rendering)"
   fi
 
-  # 1Password SSH agent socket
+  if onepassword_ssh_enabled; then
+    onepassword_ssh=1
+  fi
+
+  # Optional 1Password SSH agent socket
   mkdir -p "$HOME/.1password"
-  if [ "$OS" = "Darwin" ]; then
-    # macOS: 1Password uses a deep path, symlink it to a stable location
-    local op_sock="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
-    ln -sfn "$op_sock" "$HOME/.1password/agent.sock"
-    if [ -e "$op_sock" ] || [ -S "$op_sock" ]; then
-      say "linked 1Password SSH agent socket"
-      export SSH_AUTH_SOCK="$HOME/.1password/agent.sock"
+  if [ "$onepassword_ssh" -eq 1 ]; then
+    if [ "$OS" = "Darwin" ]; then
+      # macOS: 1Password uses a deep path, symlink it to a stable location
+      local op_sock="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+      ln -sfn "$op_sock" "$HOME/.1password/agent.sock"
+      if [ -e "$op_sock" ] || [ -S "$op_sock" ]; then
+        say "linked 1Password SSH agent socket"
+        export SSH_AUTH_SOCK="$HOME/.1password/agent.sock"
+      else
+        warn "1Password SSH agent socket not found at $op_sock"
+      fi
     else
-      warn "1Password SSH agent socket not found at $op_sock"
+      # Linux: 1Password creates the socket directly at ~/.1password/agent.sock
+      if [ -S "$HOME/.1password/agent.sock" ]; then
+        say "1Password SSH agent socket is active"
+        export SSH_AUTH_SOCK="$HOME/.1password/agent.sock"
+      else
+        warn "1Password SSH agent socket not found — enable it in 1Password > Settings > Developer"
+      fi
     fi
   else
-    # Linux: 1Password creates the socket directly at ~/.1password/agent.sock
-    if [ -S "$HOME/.1password/agent.sock" ]; then
-      say "1Password SSH agent socket is active"
-      export SSH_AUTH_SOCK="$HOME/.1password/agent.sock"
-    else
-      warn "1Password SSH agent socket not found — enable it in 1Password > Settings > Developer"
-    fi
+    unset SSH_AUTH_SOCK
+    unset SSH_AGENT_PID
+    say "1Password SSH agent disabled by profile; using direnv/env-file auth paths by default"
   fi
 
   check_node_resolution
 
   if command -v chezmoi >/dev/null 2>&1 && [ -d "$CHEZMOI_SOURCE_DIR" ]; then
+    require_chezmoi_age_key
     chezmoi apply --source="$CHEZMOI_SOURCE_DIR"
     say "applied chezmoi source"
   else
@@ -296,11 +617,21 @@ bootstrap() {
   fi
 
   if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
-    systemctl --user set-environment "PATH=$CANONICAL_DEV_PATH" "SSH_AUTH_SOCK=$HOME/.1password/agent.sock"
+    systemctl --user set-environment "PATH=$CANONICAL_DEV_PATH"
+    if [ "$onepassword_ssh" -eq 1 ] && [ -S "$HOME/.1password/agent.sock" ]; then
+      systemctl --user set-environment "SSH_AUTH_SOCK=$HOME/.1password/agent.sock"
+    else
+      systemctl --user unset-environment SSH_AUTH_SOCK || true
+    fi
     systemctl --user daemon-reload
     systemctl --user enable --now dev-git-fetch.timer
     say "reloaded user-systemd and enabled dev-git-fetch.timer"
   fi
+}
+
+auth_ensure_chezmoi_age_key() {
+  [ "$#" -eq 0 ] || die "dev auth ensure-chezmoi-age-key takes no extra arguments"
+  require_chezmoi_age_key force
 }
 
 git_sync() {
@@ -385,6 +716,11 @@ secrets_guidance() {
 
 Use direnv with a per-repo `.envrc` and gitignored `.env.local` for local development.
 Use GCP Secret Manager, Cloud Run secrets, or the CI secret store for deployed and automated workloads.
+
+Manifest-based OP API/token export:
+  dev secrets seed-op-api --profile personal
+  dev secrets seed-op-api --profile daisychain
+  dev secrets profile-path <profile>
 
 Checks:
   dev env doctor [repo-or-path ...]
@@ -488,6 +824,42 @@ visibility_report() {
   exec python3 "$script_path" "$@"
 }
 
+agent_policy() {
+  local script_dir script_path mode="$1"
+  shift
+
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [ -f "$script_dir/dev-agent-policy.py" ]; then
+    script_path="$script_dir/dev-agent-policy.py"
+  elif [ -f "$script_dir/executable_dev-agent-policy.py" ]; then
+    script_path="$script_dir/executable_dev-agent-policy.py"
+  elif [ -f "$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-agent-policy.py" ]; then
+    script_path="$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-agent-policy.py"
+  else
+    die "dev agent helper not found"
+  fi
+
+  exec python3 "$script_path" --mode "$mode" "$@"
+}
+
+agent_catalog() {
+  local script_dir script_path
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [ -f "$script_dir/dev-agent-catalog.py" ]; then
+    script_path="$script_dir/dev-agent-catalog.py"
+  elif [ -f "$script_dir/executable_dev-agent-catalog.py" ]; then
+    script_path="$script_dir/executable_dev-agent-catalog.py"
+  elif [ -f "$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-agent-catalog.py" ]; then
+    script_path="$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-agent-catalog.py"
+  else
+    die "dev agent catalog helper not found"
+  fi
+
+  exec python3 "$script_path" "$@"
+}
+
 main() {
   [ "$#" -gt 0 ] || {
     usage
@@ -554,6 +926,14 @@ main() {
           shift
           render_op_secrets "$@"
           ;;
+        seed-op-api)
+          shift
+          secrets_seed_op_api "$@"
+          ;;
+        profile-path)
+          shift
+          secrets_profile_path "$@"
+          ;;
         *)
           usage
           exit 1
@@ -566,6 +946,40 @@ main() {
         report)
           shift
           visibility_report "$@"
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+      ;;
+    agent)
+      shift
+      case "${1:-}" in
+        audit)
+          shift
+          agent_policy audit "$@"
+          ;;
+        sync)
+          shift
+          agent_policy sync "$@"
+          ;;
+        catalog)
+          shift
+          agent_catalog "$@"
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+      ;;
+    auth)
+      shift
+      case "${1:-}" in
+        ensure-chezmoi-age-key)
+          shift
+          auth_ensure_chezmoi_age_key "$@"
           ;;
         *)
           usage

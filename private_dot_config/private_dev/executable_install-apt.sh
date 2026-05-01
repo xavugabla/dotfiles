@@ -2,14 +2,16 @@
 set -euo pipefail
 
 with_1password=0
+with_tailscale=0
 original_args=("$@")
 
 usage() {
   cat <<'EOF'
-Usage: install-apt.sh [--with-1password]
+Usage: install-apt.sh [--with-1password] [--with-tailscale]
 
 Installs baseline Linux developer packages. 1Password packages are optional
 because workstation health no longer depends on `op` or `op inject`.
+Tailscale install is optional and should be enabled on remote execution hosts.
 EOF
 }
 
@@ -29,6 +31,7 @@ fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --with-1password) with_1password=1 ;;
+    --with-tailscale) with_tailscale=1 ;;
     *)
       usage >&2
       exit 1
@@ -61,6 +64,7 @@ apt-get install -y \
   direnv \
   fzf \
   git-delta \
+  tmux \
   shellcheck \
   shfmt \
   zoxide
@@ -76,4 +80,12 @@ if [ "$with_1password" -eq 1 ]; then
     debsig-verify \
     1password \
     1password-cli
+fi
+
+if [ "$with_tailscale" -eq 1 ]; then
+  if apt-cache show tailscale >/dev/null 2>&1; then
+    apt-get install -y tailscale
+  else
+    printf '%s\n' 'warning: apt package "tailscale" is unavailable; install from official Tailscale repository and enable unattended auth for remote hosts' >&2
+  fi
 fi

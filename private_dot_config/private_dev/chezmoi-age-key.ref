@@ -1,0 +1,7 @@
+# 1Password item reference for the shared chezmoi age private key.
+# First non-comment line should be an op:// reference that prints the full
+# AGE-SECRET-KEY-... value when read.
+#
+# Example:
+# op://Shared/Chezmoi Age Key/private key
+op://Personal/Chezmoi Age Key/private key

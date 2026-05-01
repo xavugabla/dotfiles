@@ -3,6 +3,9 @@
 These templates are optional compatibility files. They are not part of the
 default local-dev, service, CI, or Cloud Run secret path.
 
+Primary local strategy is direnv + gitignored env files. 1Password in this
+repo is optional SSH-agent support and explicit legacy rendering only.
+
 Create one template per service:
 - `SERVICE.env.tpl`: an `op inject` template that renders to an env file.
 - `SERVICE.target`: optional destination path. If omitted, `dev secrets render-op`

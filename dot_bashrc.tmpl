@@ -42,7 +42,12 @@ export XAVUGA_REPO_ROOT_OTHER_PROJECTS="$HOME/{{ (index .contexts "other_project
 export XAVUGA_REPO_ROOT_PROXIMA="$HOME/{{ (index .contexts "proxima").repo_root }}"
 
 if [ -S "{{ $onepasswordAgent }}" ]; then
+{{- if eq (includeTemplate "onepassword-enabled.tmpl" . | trim) "true" }}
   export SSH_AUTH_SOCK="{{ $onepasswordAgent }}"
+{{- else }}
+  unset SSH_AUTH_SOCK
+  unset SSH_AGENT_PID
+{{- end }}
 else
   unset SSH_AUTH_SOCK
   unset SSH_AGENT_PID

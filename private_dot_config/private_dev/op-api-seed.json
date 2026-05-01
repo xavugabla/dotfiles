@@ -1,0 +1,22 @@
+{
+  "include_regex": "(api|token|json|credential|client|secret|key)",
+  "exclude_regex": "(password|passphrase|otp|one[-_ ]?time|totp)",
+  "profiles": [
+    {
+      "name": "personal",
+      "account": "P6D5THLS2ZFIRFPHRMPSLADMO4",
+      "account_email": "masterxavuga@gmail.com",
+      "vault": "itettcxwxs2thzt4esrsjpad44",
+      "vault_name": "Personal",
+      "output": "op-api-personal.env"
+    },
+    {
+      "name": "daisychain",
+      "account": "JYAWO32MPFDBVOTASTQLS7GL4I",
+      "account_email": "xavier@daisychain.energy",
+      "vault": "ca3q3w3dwhb6vcqsu6imibp4du",
+      "vault_name": "Employee",
+      "output": "op-api-daisychain.env"
+    }
+  ]
+}

@@ -6,7 +6,7 @@ README.md
 .config/dev/active-repos.txt
 
 {{- if eq .chezmoi.os "darwin" }}
-# linux-only
+# linux-only overlay (runtime + remote access)
 .bashrc
 .profile
 .config/systemd
@@ -22,7 +22,7 @@ README.md
 {{- end }}
 
 {{- if eq .chezmoi.os "linux" }}
-# mac-only
+# mac-only overlay
 .zshrc
 .zprofile
 {{- end }}

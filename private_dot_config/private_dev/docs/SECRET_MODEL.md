@@ -30,13 +30,38 @@ dev env doctor /path/to/repo
 dev secrets check /path/to/repo
 ```
 
+For OP-sourced API/token material, seed central files from the profile manifest:
+
+```bash
+dev secrets seed-op-api --profile personal
+dev secrets seed-op-api --profile daisychain
+```
+
+Then load only the profile(s) needed by a repo:
+
+```bash
+# .envrc
+strict_env
+source_env_if_exists "$(dev secrets profile-path daisychain)"
+dotenv_if_exists .env.local
+source_env_if_exists .envrc.local
+```
+
+If both profile files are loaded at a parent directory, downstream repos can
+override by loading only one profile file in the repo-local `.envrc`.
+
 ## Human Auth
 
-1Password remains the SSH key provider for humans. The single policy source is
-`~/.ssh/config` through `IdentityAgent ~/.1password/agent.sock`.
+1Password can be used as an optional SSH key provider for humans. The single
+control point is `profiles.<name>.onepassword_ssh_agent` in `.chezmoidata.yaml`.
+When enabled, `~/.ssh/config` uses `IdentityAgent ~/.1password/agent.sock`.
 
 Do not export long-lived GitHub or cloud tokens from shell startup files. Use
 native tools such as `gh auth login` and `gcloud auth login`.
+
+When encrypted chezmoi source files are used, 1Password is also used once per
+user/machine to hydrate the local age key (`~/.config/chezmoi/key.txt.age`) via
+`dev auth ensure-chezmoi-age-key` or `dev bootstrap`.
 
 ## macOS
 
@@ -50,8 +75,8 @@ managed shell templates.
 ## Linux
 
 Linux shells and user-systemd put `~/.local/share/mise/shims` first in PATH.
-The managed `~/.config/environment.d/10-dev-path.conf` also sets
-`SSH_AUTH_SOCK=~/.1password/agent.sock` for user sessions.
+`SSH_AUTH_SOCK=~/.1password/agent.sock` is set only when
+`onepassword_ssh_agent` is enabled for the active profile.
 
 For long-running user services, add:
 
