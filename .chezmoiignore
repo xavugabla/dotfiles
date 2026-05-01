@@ -2,6 +2,9 @@ README.md
 **/__pycache__
 **/*.pyc
 
+# archive-only snapshots kept for rollback/reference
+_archive/**
+
 # machine-specific — managed by `dev repos add/remove`
 .config/dev/active-repos.txt
 

@@ -1,14 +1,11 @@
 contexts:
   daisychain:
     repo_root: code/daisychain
-    gitconfig_path: ~/.gitconfig-daisychain
     gcloud_config: daisychain
   other_projects:
     repo_root: code/personal
-    gitconfig_path: ~/.gitconfig-other-projects
   proxima:
     repo_root: code/proxima
-    gitconfig_path: ~/.gitconfig-proxima
     gcloud_config: proxima
 
 profiles:
@@ -19,10 +16,6 @@ profiles:
       usernames:
         - fxbc
       hostnames: []
-    enabled_contexts:
-      - daisychain
-      - other_projects
-      - proxima
   DC_OS:
     machine_role: daisychain
     selector:
@@ -30,8 +23,6 @@ profiles:
       usernames:
         - DC
       hostnames: []
-    enabled_contexts:
-      - daisychain
   XA_OS:
     machine_role: other_projects
     selector:
@@ -39,9 +30,6 @@ profiles:
       usernames:
         - XA
       hostnames: []
-    enabled_contexts:
-      - other_projects
-      - proxima
   fx_linux:
     machine_role: linux_execution
     selector:
@@ -50,7 +38,3 @@ profiles:
         - xavier
       hostnames:
         - fx
-    enabled_contexts:
-      - daisychain
-      - other_projects
-      - proxima

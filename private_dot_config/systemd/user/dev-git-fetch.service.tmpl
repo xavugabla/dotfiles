@@ -6,8 +6,8 @@ ConditionPathExists=%h/.local/bin/dev
 
 [Service]
 Type=oneshot
-Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:%h/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=SSH_AUTH_SOCK=%h/.1password/agent.sock
+Environment=PATH={{ includeTemplate "dev-env-policy.tmpl" . | trim }}
+Environment=SSH_AUTH_SOCK={{ includeTemplate "onepassword-agent.tmpl" . | trim }}
 ExecStart=%h/.local/bin/dev git-sync --quiet
 Nice=10
 IOSchedulingClass=best-effort

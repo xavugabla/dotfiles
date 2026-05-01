@@ -1,8 +1,12 @@
 # User systemd environment
 
-`dev-git-fetch.service` carries the same PATH policy as the shell templates:
-mise shims first, then user bins, then system paths. It also points
-`SSH_AUTH_SOCK` at the stable 1Password SSH agent socket.
+`dev-git-fetch.service.tmpl` and `~/.config/environment.d/10-dev-path.conf`
+share one source of truth:
+
+- `.chezmoitemplates/dev-env-policy.tmpl` for PATH order
+- `.chezmoitemplates/onepassword-agent.tmpl` for `SSH_AUTH_SOCK`
+
+Path order remains: mise shims first, then user bins, then system paths.
 
 For services that need secrets, prefer a service-owned env file:
 

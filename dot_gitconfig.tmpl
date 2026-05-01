@@ -1,6 +1,4 @@
 {{- $home := includeTemplate "home-dir.tmpl" . | trim -}}
-{{- $profileName := includeTemplate "profile-name.tmpl" . | trim -}}
-{{- $profile := index .profiles $profileName -}}
 [user]
 	name = Xavugabla
 	email = masterxavuga@gmail.com
@@ -55,8 +53,3 @@
 [mergetool "sourcetree"]
 	cmd = /Applications/Sourcetree.app/Contents/Resources/opendiff-w.sh \"$LOCAL\" \"$REMOTE\" -ancestor \"$BASE\" -merge \"$MERGED\"
 	trustExitCode = true
-{{- range $contextName := $profile.enabled_contexts }}
-{{- $context := index $.contexts $contextName }}
-[includeIf "gitdir/i:{{ joinPath $home $context.repo_root }}/"]
-	path = {{ $context.gitconfig_path }}
-{{- end }}

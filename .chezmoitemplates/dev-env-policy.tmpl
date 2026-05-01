@@ -1,0 +1,2 @@
+{{- $home := includeTemplate "home-dir.tmpl" . | trim -}}
+{{ $home }}/.local/share/mise/shims:{{ $home }}/.local/bin:{{ $home }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

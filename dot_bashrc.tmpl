@@ -26,9 +26,7 @@ path_prepend() {
   esac
 }
 
-path_prepend "$HOME/bin"
-path_prepend "$HOME/.local/bin"
-path_prepend "$HOME/.local/share/mise/shims"
+{{ includeTemplate "dev-shell-path-prepend.sh.tmpl" . }}
 
 if [ -d "$HOME/.pyenv" ]; then
   export PYENV_ROOT="$HOME/.pyenv"
