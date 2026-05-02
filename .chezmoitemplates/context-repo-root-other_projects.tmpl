@@ -1,0 +1,1 @@
+{{- if eq .chezmoi.os "linux" -}}projects/personal{{- else -}}{{(index .contexts "other_projects").repo_root}}{{- end -}}

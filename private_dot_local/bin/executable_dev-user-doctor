@@ -246,13 +246,22 @@ if [ -f "$HOME/.config/dev/active-repos.txt" ]; then
   done <"$HOME/.config/dev/active-repos.txt"
 fi
 
-section "code roots"
-for path in "$HOME/code" "$HOME/code/daisychain" "$HOME/code/personal" "$HOME/code/proxima"; do
-  if [ -e "$path" ]; then
-    owner="$(stat -f '%Su:%Sg' "$path" 2>/dev/null || stat -c '%U:%G' "$path" 2>/dev/null || printf 'unknown')"
-    print_kv "$path" "$owner"
-  fi
-done
+section "repo roots"
+if [ "$(uname -s)" = "Linux" ]; then
+  for path in "$HOME/projects" "$HOME/projects/daisychain" "$HOME/projects/personal" "$HOME/projects/proxima"; do
+    if [ -e "$path" ]; then
+      owner="$(stat -f '%Su:%Sg' "$path" 2>/dev/null || stat -c '%U:%G' "$path" 2>/dev/null || printf 'unknown')"
+      print_kv "$path" "$owner"
+    fi
+  done
+else
+  for path in "$HOME/code" "$HOME/code/daisychain" "$HOME/code/personal" "$HOME/code/proxima"; do
+    if [ -e "$path" ]; then
+      owner="$(stat -f '%Su:%Sg' "$path" 2>/dev/null || stat -c '%U:%G' "$path" 2>/dev/null || printf 'unknown')"
+      print_kv "$path" "$owner"
+    fi
+  done
+fi
 
 section "brew"
 if command -v brew >/dev/null 2>&1; then

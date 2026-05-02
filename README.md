@@ -15,7 +15,7 @@ Available profiles:
 - `meta_mac`: current admin/meta user on macOS
 - `DC_OS`: DaisyChain-focused macOS user
 - `XA_OS`: personal / other-projects macOS user
-- `fx_linux`: Linux execution plane (currently selected by `os=linux`, `username=xavier`, `hostname=fx`)
+- `fx_linux`: Linux execution plane (currently selected by `os=linux`, `username=xavier`, `hostname=fx`). Repo roots use `~/projects/...` on Linux while macOS identities use `~/code/...`; see `.chezmoitemplates/context-repo-root-*.tmpl`.
 
 ## Notes
 

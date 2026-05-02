@@ -1,0 +1,1 @@
+{{- if eq .chezmoi.os "linux" -}}projects/proxima{{- else -}}{{(index .contexts "proxima").repo_root}}{{- end -}}

@@ -74,6 +74,16 @@ managed shell templates.
 
 ## Linux
 
+Repo identity paths use `~/projects/...` on Linux (`projects/daisychain`,
+`projects/personal`, `projects/proxima`) while macOS uses `~/code/...`; the
+mapping lives in `.chezmoitemplates/context-repo-root-*.tmpl` so `.chezmoidata.yaml`
+can stay mac-oriented.
+
+Encrypted chezmoi content decrypts with the age identity file at
+`~/.config/chezmoi/key.txt.age`. Hydrate that file once per machine from the
+1Password item referenced in `~/.config/dev/chezmoi-age-key.ref` (see
+`dev auth ensure-chezmoi-age-key` / `dev bootstrap`).
+
 Linux shells and user-systemd put `~/.local/share/mise/shims` first in PATH.
 `SSH_AUTH_SOCK=~/.1password/agent.sock` is set only when
 `onepassword_ssh_agent` is enabled for the active profile.

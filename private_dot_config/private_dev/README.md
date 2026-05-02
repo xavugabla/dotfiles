@@ -50,7 +50,7 @@ Workflow:
 - Run `dev agent audit --format json` when policy drift must be consumed programmatically.
 - Run `dev agent sync` for safe autofix; use `--all-repos` to apply lax/strict policy across discovered repos and `--bootstrap` to create missing managed policy targets (`AGENTS.md`, `CLAUDE.md`, `.claude/rules/agent-policy.md`, `.cursor/rules/agent-policy.mdc` where applicable).
 - Run `dev agent catalog` to import repo-specific agent/rule files into `~/.config/dev/agent-catalog/` for side-by-side review.
-- Run `dev reports export --vault-root ~/code/personal/fx_vault` to sync generated reports, mirrored docs, and tier policy config mirrors (`policy-tiers.json`, `policy-lcd.json`, strict repo list) into `~/code/personal/fx_vault/chezmoi/` with a refreshed `INDEX.md`.
+- Run `dev reports export` (default vault: `~/code/personal/fx_vault` on macOS, `~/projects/personal/fx_vault` on Linux) or pass `--vault-root` explicitly. Syncs reports, mirrored docs, and tier policy mirrors into `<vault>/chezmoi/` with a refreshed `INDEX.md`.
 - `mise` startup deployment can be paused by default and enabled per-shell with:
 
   ```bash

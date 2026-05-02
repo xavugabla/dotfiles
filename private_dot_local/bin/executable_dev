@@ -870,7 +870,12 @@ agent_catalog() {
 }
 
 reports_export() {
-  local vault_root="$HOME/code/personal/fx_vault"
+  local vault_root
+  if [ "$(uname -s)" = "Linux" ]; then
+    vault_root="$HOME/projects/personal/fx_vault"
+  else
+    vault_root="$HOME/code/personal/fx_vault"
+  fi
   local outdir reports_dir docs_dir config_dir visibility_path visibility_json matrix_json catalog_index catalog_output
   local policy_lcd_src policy_tiers_src strict_repos_src
 

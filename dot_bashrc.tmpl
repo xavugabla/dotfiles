@@ -39,9 +39,9 @@ fi
 export PATH
 export XAVUGA_PROFILE="{{ $profileName }}"
 export XAVUGA_MACHINE_ROLE="{{ $profile.machine_role }}"
-export XAVUGA_REPO_ROOT_DAISYCHAIN="$HOME/{{ (index .contexts "daisychain").repo_root }}"
-export XAVUGA_REPO_ROOT_OTHER_PROJECTS="$HOME/{{ (index .contexts "other_projects").repo_root }}"
-export XAVUGA_REPO_ROOT_PROXIMA="$HOME/{{ (index .contexts "proxima").repo_root }}"
+export XAVUGA_REPO_ROOT_DAISYCHAIN="$HOME/{{ includeTemplate "context-repo-root-daisychain.tmpl" . | trim }}"
+export XAVUGA_REPO_ROOT_OTHER_PROJECTS="$HOME/{{ includeTemplate "context-repo-root-other_projects.tmpl" . | trim }}"
+export XAVUGA_REPO_ROOT_PROXIMA="$HOME/{{ includeTemplate "context-repo-root-proxima.tmpl" . | trim }}"
 
 if [ -S "{{ $onepasswordAgent }}" ]; then
 {{- if eq (includeTemplate "onepassword-enabled.tmpl" . | trim) "true" }}

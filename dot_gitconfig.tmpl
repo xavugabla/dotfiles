@@ -57,6 +57,6 @@
 	trustExitCode = true
 {{- range $contextName := $profile.enabled_contexts }}
 {{- $context := index $.contexts $contextName }}
-[includeIf "gitdir/i:{{ joinPath $home $context.repo_root }}/"]
+[includeIf "gitdir/i:{{- if eq $contextName "daisychain" -}}{{ joinPath $home (includeTemplate "context-repo-root-daisychain.tmpl" $ | trim) }}/{{- else if eq $contextName "other_projects" -}}{{ joinPath $home (includeTemplate "context-repo-root-other_projects.tmpl" $ | trim) }}/{{- else if eq $contextName "proxima" -}}{{ joinPath $home (includeTemplate "context-repo-root-proxima.tmpl" $ | trim) }}/{{- else -}}{{ joinPath $home $context.repo_root }}/{{- end -}}"]
 	path = {{ $context.gitconfig_path }}
 {{- end }}

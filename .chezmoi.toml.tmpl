@@ -1,5 +1,7 @@
 {{- /* chezmoi config — per-machine settings */ -}}
 
+encryption = "age"
+
 [data]
 {{- if eq .chezmoi.os "darwin" }}
     onepasswordAgent = "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
