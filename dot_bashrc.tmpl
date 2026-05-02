@@ -28,7 +28,9 @@ path_prepend() {
 
 path_prepend "$HOME/bin"
 path_prepend "$HOME/.local/bin"
-path_prepend "$HOME/.local/share/mise/shims"
+if [ "${XAVUGA_MISE_STARTUP:-0}" = "1" ]; then
+  path_prepend "$HOME/.local/share/mise/shims"
+fi
 
 if [ -d "$HOME/.pyenv" ]; then
   export PYENV_ROOT="$HOME/.pyenv"
@@ -121,7 +123,7 @@ if [ -n "${PYENV_ROOT:-}" ] && command -v pyenv >/dev/null 2>&1; then
   eval "$(pyenv init - bash)"
 fi
 
-if command -v mise >/dev/null 2>&1; then
+if [ "${XAVUGA_MISE_STARTUP:-0}" = "1" ] && command -v mise >/dev/null 2>&1; then
   eval "$(mise activate bash)"
 fi
 

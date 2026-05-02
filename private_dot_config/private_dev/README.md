@@ -16,6 +16,8 @@ Files and directories:
 - `docs/AGENT_GUARDRAILS.md`: agent/editor permission boundaries.
 - `docs/AGENT_BASELINE.md`: canonical cross-tool managed policy block.
 - `agent-strict-repos.txt`: opt-in strict override repo list (absolute paths).
+- `policy-lcd.json`: machine-readable LCD policy floor used by matrix compliance.
+- `policy-tiers.json`: machine-readable tier model (4/3/2/1) used by matrix tiering and revamp targeting.
 - `chezmoi-age-key.ref`: 1Password reference used to hydrate the shared chezmoi age key on first apply/refresh.
 - `op-api-seed.json`: manifest for account/vault-based OP API-style secret export profiles.
 - `1password/*.env.tpl`: legacy optional `op inject` templates rendered only by explicit commands.
@@ -40,9 +42,20 @@ Workflow:
 - Run `dev secrets seed-op-api --profile personal` and `dev secrets seed-op-api --profile daisychain` to regenerate central API/token secret files in `~/.config/dev/auth/secrets/`.
 - Use `dev secrets profile-path personal` / `dev secrets profile-path daisychain` to reference the generated files from repo `.envrc` blocks.
 - Run `dev visibility report` (or `~/.local/bin/dev-visibility-report.py`) to refresh the read-only inventory at `~/.config/dev/visibility/agent-visibility.md`.
+- Run `dev visibility report --format json` and `dev visibility report --format matrix-json` for machine-readable state/matrix outputs.
 - Run `dev agent audit` to check lax root policy and strict override repos.
+- Run `dev agent audit --format json` when policy drift must be consumed programmatically.
 - Run `dev agent sync` for safe autofix; use `--all-repos` to apply lax/strict policy across discovered repos and `--bootstrap` to create missing managed policy targets (`AGENTS.md`, `CLAUDE.md`, `.claude/rules/agent-policy.md`, `.cursor/rules/agent-policy.mdc` where applicable).
 - Run `dev agent catalog` to import repo-specific agent/rule files into `~/.config/dev/agent-catalog/` for side-by-side review.
+- Run `dev reports export --vault-root ~/code/personal/fx_vault` to sync generated reports, mirrored docs, and tier policy config mirrors (`policy-tiers.json`, `policy-lcd.json`, strict repo list) into `~/code/personal/fx_vault/chezmoi/` with a refreshed `INDEX.md`.
+- `mise` startup deployment can be paused by default and enabled per-shell with:
+
+  ```bash
+  export XAVUGA_MISE_STARTUP=1
+  ```
+
+  When unset (default), shell startup skips adding `~/.local/share/mise/shims`
+  and skips `mise activate`, while leaving `mise` installed and ready.
 
 Single-point 1Password SSH behavior is controlled per profile in `.chezmoidata.yaml`
 via `profiles.<name>.onepassword_ssh_agent` (true/false). Direnv/env-files are

@@ -19,7 +19,9 @@ fi
 
 path_prepend "$HOME/bin"
 path_prepend "$HOME/.local/bin"
-path_prepend "$HOME/.local/share/mise/shims"
+if [[ "${XAVUGA_MISE_STARTUP:-0}" == "1" ]]; then
+    path_prepend "$HOME/.local/share/mise/shims"
+fi
 export PATH
 
 unset -f path_prepend

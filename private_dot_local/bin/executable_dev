@@ -31,6 +31,7 @@ Usage:
   dev secrets seed-op-api --profile <name>
   dev secrets profile-path <name>
   dev visibility report [--extra-root /absolute/path]
+  dev reports export [--vault-root /absolute/path]
 EOF
 }
 
@@ -807,21 +808,40 @@ env_doctor() {
   fi
 }
 
-visibility_report() {
-  local script_dir script_path
+resolve_visibility_script() {
+  local script_dir
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
   if [ -f "$script_dir/dev-visibility-report.py" ]; then
-    script_path="$script_dir/dev-visibility-report.py"
+    printf '%s\n' "$script_dir/dev-visibility-report.py"
   elif [ -f "$script_dir/executable_dev-visibility-report.py" ]; then
-    script_path="$script_dir/executable_dev-visibility-report.py"
+    printf '%s\n' "$script_dir/executable_dev-visibility-report.py"
   elif [ -f "$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-visibility-report.py" ]; then
-    script_path="$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-visibility-report.py"
+    printf '%s\n' "$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-visibility-report.py"
   else
     die "dev visibility helper not found"
   fi
+}
 
-  exec python3 "$script_path" "$@"
+resolve_agent_catalog_script() {
+  local script_dir
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [ -f "$script_dir/dev-agent-catalog.py" ]; then
+    printf '%s\n' "$script_dir/dev-agent-catalog.py"
+  elif [ -f "$script_dir/executable_dev-agent-catalog.py" ]; then
+    printf '%s\n' "$script_dir/executable_dev-agent-catalog.py"
+  elif [ -f "$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-agent-catalog.py" ]; then
+    printf '%s\n' "$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-agent-catalog.py"
+  else
+    die "dev agent catalog helper not found"
+  fi
+}
+
+visibility_report() {
+  local script_path
+  script_path="$(resolve_visibility_script)"
+  python3 "$script_path" "$@"
 }
 
 agent_policy() {
@@ -844,20 +864,121 @@ agent_policy() {
 }
 
 agent_catalog() {
-  local script_dir script_path
-  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-
-  if [ -f "$script_dir/dev-agent-catalog.py" ]; then
-    script_path="$script_dir/dev-agent-catalog.py"
-  elif [ -f "$script_dir/executable_dev-agent-catalog.py" ]; then
-    script_path="$script_dir/executable_dev-agent-catalog.py"
-  elif [ -f "$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-agent-catalog.py" ]; then
-    script_path="$CHEZMOI_SOURCE_DIR/private_dot_local/bin/executable_dev-agent-catalog.py"
-  else
-    die "dev agent catalog helper not found"
-  fi
-
+  local script_path
+  script_path="$(resolve_agent_catalog_script)"
   exec python3 "$script_path" "$@"
+}
+
+reports_export() {
+  local vault_root="$HOME/code/personal/fx_vault"
+  local outdir reports_dir docs_dir config_dir visibility_path visibility_json matrix_json catalog_index catalog_output
+  local policy_lcd_src policy_tiers_src strict_repos_src
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --vault-root)
+        shift
+        [ "$#" -gt 0 ] || die "missing value for --vault-root"
+        vault_root="$1"
+        ;;
+      *)
+        die "unknown reports export flag: $1"
+        ;;
+    esac
+    shift
+  done
+
+  [ -d "$vault_root" ] || die "vault root directory not found: $vault_root"
+  outdir="$vault_root/chezmoi"
+  reports_dir="$outdir/reports"
+  docs_dir="$outdir/docs"
+  config_dir="$outdir/config"
+  mkdir -p "$reports_dir" "$docs_dir" "$config_dir"
+
+  visibility_path="$(visibility_report --format markdown)"
+  visibility_json="$(visibility_report --format json)"
+  matrix_json="$(visibility_report --format matrix-json)"
+  catalog_output="$(agent_catalog)"
+  catalog_index="$(printf '%s\n' "$catalog_output" | sed -n '1p')"
+
+  visibility_path="${visibility_path/#\~/$HOME}"
+  visibility_json="${visibility_json/#\~/$HOME}"
+  matrix_json="${matrix_json/#\~/$HOME}"
+  catalog_index="${catalog_index/#\~/$HOME}"
+
+  cp "$visibility_path" "$reports_dir/agent-visibility.md"
+  cp "$catalog_index" "$reports_dir/agent-catalog-index.md"
+  cp "$CHEZMOI_SOURCE_DIR/README.md" "$docs_dir/readme-root.md"
+  cp "$CHEZMOI_SOURCE_DIR/private_dot_config/private_dev/README.md" "$docs_dir/readme-private-dev.md"
+
+  policy_lcd_src="$CONFIG_HOME/dev/policy-lcd.json"
+  if [ ! -f "$policy_lcd_src" ]; then
+    policy_lcd_src="$CHEZMOI_SOURCE_DIR/private_dot_config/private_dev/policy-lcd.json"
+  fi
+  [ -f "$policy_lcd_src" ] && cp "$policy_lcd_src" "$config_dir/policy-lcd.json"
+
+  policy_tiers_src="$CONFIG_HOME/dev/policy-tiers.json"
+  if [ ! -f "$policy_tiers_src" ]; then
+    policy_tiers_src="$CHEZMOI_SOURCE_DIR/private_dot_config/private_dev/policy-tiers.json"
+  fi
+  [ -f "$policy_tiers_src" ] && cp "$policy_tiers_src" "$config_dir/policy-tiers.json"
+
+  strict_repos_src="$CONFIG_HOME/dev/agent-strict-repos.txt"
+  if [ ! -f "$strict_repos_src" ]; then
+    strict_repos_src="$CHEZMOI_SOURCE_DIR/private_dot_config/private_dev/agent-strict-repos.txt"
+  fi
+  [ -f "$strict_repos_src" ] && cp "$strict_repos_src" "$config_dir/agent-strict-repos.txt"
+
+  python3 - <<'PY' "$CHEZMOI_SOURCE_DIR/private_dot_config/private_dev/docs" "$docs_dir"
+import shutil
+import sys
+from pathlib import Path
+
+src_docs = Path(sys.argv[1])
+dst_docs = Path(sys.argv[2])
+dst_docs.mkdir(parents=True, exist_ok=True)
+
+for md in sorted(src_docs.glob("*.md")):
+    target = dst_docs / f"private-dev-docs-{md.name}"
+    shutil.copy2(md, target)
+PY
+
+  python3 - <<'PY' "$visibility_json" "$reports_dir/agent-visibility.json" "$matrix_json" "$reports_dir/agent-visibility.matrix.json" "$outdir/INDEX.md" "$config_dir"
+import json
+import sys
+from pathlib import Path
+
+src_json, dst_json, src_matrix, dst_matrix, index_path, config_dir = map(Path, sys.argv[1:])
+for src, dst in ((src_json, dst_json), (src_matrix, dst_matrix)):
+    payload = json.loads(src.read_text(encoding="utf-8"))
+    dst.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+report_files = sorted(p.name for p in dst_json.parent.glob("*") if p.is_file())
+doc_files = sorted(p.name for p in (index_path.parent / "docs").glob("*.md") if p.is_file())
+config_files = sorted(p.name for p in config_dir.glob("*") if p.is_file())
+
+lines = [
+    "# Chezmoi Vault Catalog",
+    "",
+    "This directory mirrors machine-generated and source-derived chezmoi artifacts.",
+    "",
+    "## Reports",
+]
+for name in report_files:
+    lines.append(f"- `reports/{name}`")
+
+lines.extend(["", "## Docs Mirrors"])
+for name in doc_files:
+    lines.append(f"- `docs/{name}`")
+
+lines.extend(["", "## Tier Config Mirrors"])
+for name in config_files:
+    lines.append(f"- `config/{name}`")
+
+index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+
+  say "$outdir"
 }
 
 main() {
@@ -946,6 +1067,19 @@ main() {
         report)
           shift
           visibility_report "$@"
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+      ;;
+    reports)
+      shift
+      case "${1:-}" in
+        export)
+          shift
+          reports_export "$@"
           ;;
         *)
           usage

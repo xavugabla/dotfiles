@@ -1,0 +1,20 @@
+{
+  "schema_version": "v1",
+  "profile": "lcd_safe_v1",
+  "allow_flags": {
+    "allow_destructive_git": false,
+    "allow_system_mutation_without_authorization": false,
+    "allow_git_commit_without_authorization": false,
+    "allow_git_push_without_authorization": false,
+    "allow_branch_or_pr_without_authorization": false,
+    "allow_scope_outside_active_repo": false
+  },
+  "required_guards": {
+    "authorization": true,
+    "system_mutation_authorization": true
+  },
+  "notes": [
+    "LCD is the minimum non-negotiable baseline for every non-vault repo.",
+    "Repo-specific MAX policies may add constraints, never weaker than LCD."
+  ]
+}

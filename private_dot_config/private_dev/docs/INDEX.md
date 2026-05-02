@@ -15,8 +15,11 @@ Use this as the entrypoint before changing policy, scripts, or managed config.
 ## Generated Catalogs (outside repo source)
 
 - `~/.config/dev/visibility/agent-visibility.md`: read-only machine + repo agent surface inventory (`dev visibility report`).
+- `~/.config/dev/visibility/agent-visibility.json`: machine-readable full visibility state.
+- `~/.config/dev/visibility/agent-visibility.matrix.json`: machine-readable policy matrix with reconcile actions.
 - `~/.config/dev/agent-catalog/index.md`: imported repo rule inventory (`dev agent catalog`).
 - `~/.config/dev/agent-catalog/snapshots/`: copied source snapshots for side-by-side review.
+- `~/code/personal/fx_vault/chezmoi/`: exported markdown/json reports + docs mirror with catalog index (`dev reports export`).
 
 ## Operating Principle
 

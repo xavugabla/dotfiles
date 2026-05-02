@@ -24,6 +24,7 @@ The script is intentionally read-only and dependency-free.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import re
@@ -36,8 +37,16 @@ from typing import Any
 
 HOME = Path.home()
 CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", str(HOME / ".config")))
-OUTPUT_PATH = CONFIG_HOME / "dev" / "visibility" / "agent-visibility.md"
+OUTPUT_DIR = CONFIG_HOME / "dev" / "visibility"
+OUTPUT_PATH = OUTPUT_DIR / "agent-visibility.md"
+OUTPUT_JSON_PATH = OUTPUT_DIR / "agent-visibility.json"
+OUTPUT_MATRIX_JSON_PATH = OUTPUT_DIR / "agent-visibility.matrix.json"
 ACTIVE_REPOS_FILE = CONFIG_HOME / "dev" / "active-repos.txt"
+STRICT_REPOS_FILE = CONFIG_HOME / "dev" / "agent-strict-repos.txt"
+LCD_POLICY_PATH_CANDIDATES = (
+    CONFIG_HOME / "dev" / "policy-lcd.json",
+    HOME / ".local/share/chezmoi/private_dot_config/private_dev/policy-lcd.json",
+)
 
 TOOL_ORDER = ("claude", "codex", "cursor", "continue")
 TOOL_LABELS = {
@@ -199,6 +208,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--vault-root",
         help="Override the iCloud vault root (defaults to the standard Obsidian iCloud path).",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("markdown", "json", "matrix-json"),
+        default="markdown",
+        help="Output format written to disk (default: markdown).",
     )
     return parser.parse_args(argv)
 
@@ -1239,7 +1254,12 @@ def collect_repo_targets(repo_roots: list[Path]) -> list[Path]:
 
     for repo_root in repo_roots:
         for repo_path in iter_repo_candidates(repo_root):
-            deduped[str(repo_path.resolve())] = repo_path.resolve()
+            resolved = repo_path.resolve()
+            deduped[str(resolved)] = resolved
+            for nested in iter_repo_candidates(repo_path):
+                nested_resolved = nested.resolve()
+                if (nested_resolved / ".git").is_dir():
+                    deduped[str(nested_resolved)] = nested_resolved
 
     for repo_path in iter_active_repos():
         deduped[str(repo_path)] = repo_path
@@ -1607,6 +1627,578 @@ def validate_extra_root(raw_value: str | None) -> Path | None:
     return path
 
 
+def expand_display_path(value: str) -> Path:
+    if value == "~":
+        return HOME
+    if value.startswith("~/"):
+        return HOME / value[2:]
+    return Path(value)
+
+
+def parse_strict_repos(path: Path = STRICT_REPOS_FILE) -> set[str]:
+    repos: set[str] = set()
+    text = read_text(path)
+    if text is None:
+        return repos
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        candidate = Path(line).expanduser()
+        if candidate.is_absolute():
+            repos.add(str(candidate))
+    return repos
+
+
+def extract_profiles_from_envrc_text(text: str) -> list[str]:
+    matches = re.findall(r"dev\s+secrets\s+profile-path\s+([A-Za-z0-9_-]+)", text)
+    return sorted(set(matches))
+
+
+def infer_env_policy(repo_path: Path) -> dict[str, Any]:
+    envrc_path = repo_path / ".envrc"
+    if not envrc_path.is_file():
+        return {
+            "has_envrc": False,
+            "source_up": False,
+            "profiles_explicit": [],
+            "profiles_effective": [],
+            "policy_note": "no .envrc",
+        }
+
+    text = read_text(envrc_path) or ""
+    source_up = bool(re.search(r"(^|\s)source_up(\s|$)", text))
+    explicit_profiles = extract_profiles_from_envrc_text(text)
+    effective_profiles = list(explicit_profiles)
+    notes: list[str] = []
+    if source_up:
+        parent = repo_path.parent
+        while parent != parent.parent:
+            parent_envrc = parent / ".envrc"
+            if parent_envrc.is_file():
+                parent_profiles = extract_profiles_from_envrc_text(read_text(parent_envrc) or "")
+                for profile in parent_profiles:
+                    if profile not in effective_profiles:
+                        effective_profiles.append(profile)
+                notes.append(f"inherits from {display_path(parent_envrc)}")
+                break
+            parent = parent.parent
+
+    return {
+        "has_envrc": True,
+        "source_up": source_up,
+        "profiles_explicit": explicit_profiles,
+        "profiles_effective": sorted(effective_profiles),
+        "policy_note": "; ".join(notes) if notes else "repo-local only",
+    }
+
+
+def read_managed_policy_mode(path: Path) -> str:
+    text = read_text(path)
+    if text is None:
+        return "missing"
+    if "<!-- dev-agent-policy:start -->" not in text or "<!-- dev-agent-policy:end -->" not in text:
+        return "no-managed-block"
+    if "Managed Agent Policy (Strict Override)" in text:
+        return "strict"
+    if "Managed Agent Policy (Lax Safe Default)" in text or "Managed Agent Policy (Default Lax)" in text:
+        return "lax"
+    return "managed-unknown"
+
+
+def _glob_files(repo_path: Path, pattern: str, limit: int = 50) -> list[Path]:
+    matches: list[Path] = []
+    try:
+        for candidate in repo_path.glob(pattern):
+            if candidate.is_file():
+                matches.append(candidate)
+            if len(matches) >= limit:
+                break
+    except OSError:
+        return []
+    return sorted(matches)
+
+
+def collect_repo_contract_signals(repo_path: Path) -> dict[str, Any]:
+    commit_guidelines = _glob_files(repo_path, ".claude/rules/*commit*guideline*.md")
+    pr_guidelines = _glob_files(repo_path, ".claude/rules/*pr*guideline*.md")
+    git_guides = _glob_files(repo_path, ".claude/rules/*git*.md")
+
+    roadmap_docs = _glob_files(repo_path, "docs/**/*ROADMAP*.md")
+    if not roadmap_docs:
+        roadmap_docs = _glob_files(repo_path, "docs/**/*roadmap*.md")
+
+    memory_files = (
+        _glob_files(repo_path, ".codex/memories/*")
+        + _glob_files(repo_path, ".claude/memory*")
+        + _glob_files(repo_path, ".cursor/memory*")
+        + _glob_files(repo_path, "MEMORY*.md")
+    )
+    skills_files = (
+        _glob_files(repo_path, ".claude/skills/**/SKILL.md")
+        + _glob_files(repo_path, ".codex/skills/**/SKILL.md")
+        + _glob_files(repo_path, ".cursor/skills-cursor/**/SKILL.md")
+        + _glob_files(repo_path, ".cursor/.cursor-user-skills/**/SKILL.md")
+    )
+
+    docs_conventions = _glob_files(repo_path, "docs/**/*convention*.md") + _glob_files(repo_path, "docs/**/*guideline*.md")
+
+    matched = {
+        "commit_guidelines": commit_guidelines,
+        "pr_guidelines": pr_guidelines,
+        "git_guides": git_guides,
+        "roadmap_docs": roadmap_docs,
+        "memory_files": memory_files,
+        "skills_files": skills_files,
+        "docs_conventions": docs_conventions,
+    }
+    policy_stack_depth = 0
+    if (repo_path / "AGENTS.md").is_file():
+        policy_stack_depth += 1
+    if (repo_path / "CLAUDE.md").is_file():
+        policy_stack_depth += 1
+    if any(_glob_files(repo_path, ".claude/rules/*.md", limit=1)):
+        policy_stack_depth += 1
+    if any(_glob_files(repo_path, ".cursor/rules/*.mdc", limit=1)):
+        policy_stack_depth += 1
+
+    return {
+        "has_commit_guidelines": bool(commit_guidelines),
+        "has_pr_guidelines": bool(pr_guidelines),
+        "has_git_guides": bool(git_guides),
+        "has_roadmap_conventions": bool(roadmap_docs),
+        "has_memory_surface": bool(memory_files),
+        "has_skills_surface": bool(skills_files),
+        "has_docs_contract": bool(docs_conventions or roadmap_docs),
+        "policy_stack_depth": policy_stack_depth,
+        "matched_files": {
+            key: [display_path(path) for path in value[:12]]
+            for key, value in matched.items()
+            if value
+        },
+    }
+
+
+DEFAULT_LCD_POLICY = {
+    "schema_version": "v1",
+    "profile": "lcd_safe_v1",
+    "allow_flags": {
+        "allow_destructive_git": False,
+        "allow_system_mutation_without_authorization": False,
+        "allow_git_commit_without_authorization": False,
+        "allow_git_push_without_authorization": False,
+        "allow_branch_or_pr_without_authorization": False,
+        "allow_scope_outside_active_repo": False,
+    },
+    "required_guards": {
+        "authorization": True,
+        "system_mutation_authorization": True,
+    },
+}
+
+
+def load_lcd_policy() -> dict[str, Any]:
+    policy: dict[str, Any] = json.loads(json.dumps(DEFAULT_LCD_POLICY))
+    for candidate in LCD_POLICY_PATH_CANDIDATES:
+        raw = parse_json(candidate)
+        if not isinstance(raw, dict):
+            continue
+        allow = raw.get("allow_flags")
+        if isinstance(allow, dict):
+            for key, value in allow.items():
+                if key in policy["allow_flags"] and isinstance(value, bool):
+                    policy["allow_flags"][key] = value
+        guards = raw.get("required_guards")
+        if isinstance(guards, dict):
+            for key, value in guards.items():
+                if key in policy["required_guards"] and isinstance(value, bool):
+                    policy["required_guards"][key] = value
+        if isinstance(raw.get("schema_version"), str):
+            policy["schema_version"] = raw["schema_version"]
+        if isinstance(raw.get("profile"), str):
+            policy["profile"] = raw["profile"]
+        policy["source"] = display_path(candidate)
+        return policy
+    policy["source"] = "(built-in default)"
+    return policy
+
+
+DEFAULT_POLICY_TIERS = {
+    "schema_version": "v1",
+    "profile": "agent_tiers_v1",
+    "anchors": {"tier_4": ["~/code/daisychain/elo-backend-dev"], "tier_3": ["~/code/daisychain/dc_platform"]},
+    "tier_2_standard": {
+        "min_policy_stack_depth": 2,
+        "require_authorization_guard": True,
+        "require_system_mutation_guard": True,
+        "forbid_wildcard_pattern": True,
+        "required_false_allow_flags": [
+            "allow_destructive_git",
+            "allow_system_mutation_without_authorization",
+            "allow_git_commit_without_authorization",
+            "allow_git_push_without_authorization",
+            "allow_branch_or_pr_without_authorization",
+            "allow_scope_outside_active_repo",
+        ],
+    },
+    "targets": {"tier_4": 4, "tier_3": 3, "default_minimum": 2},
+}
+
+POLICY_TIERS_PATH_CANDIDATES = (
+    CONFIG_HOME / "dev" / "policy-tiers.json",
+    HOME / ".local/share/chezmoi/private_dot_config/private_dev/policy-tiers.json",
+)
+
+
+def load_policy_tiers() -> dict[str, Any]:
+    tiers: dict[str, Any] = json.loads(json.dumps(DEFAULT_POLICY_TIERS))
+    for candidate in POLICY_TIERS_PATH_CANDIDATES:
+        raw = parse_json(candidate)
+        if not isinstance(raw, dict):
+            continue
+        for key in ("schema_version", "profile"):
+            if isinstance(raw.get(key), str):
+                tiers[key] = raw[key]
+        if isinstance(raw.get("anchors"), dict):
+            for anchor_key in ("tier_4", "tier_3"):
+                values = raw["anchors"].get(anchor_key)
+                if isinstance(values, list):
+                    tiers["anchors"][anchor_key] = [str(v) for v in values if isinstance(v, str)]
+        if isinstance(raw.get("tier_2_standard"), dict):
+            for key, value in raw["tier_2_standard"].items():
+                tiers["tier_2_standard"][key] = value
+        if isinstance(raw.get("targets"), dict):
+            for key, value in raw["targets"].items():
+                tiers["targets"][key] = value
+        tiers["source"] = display_path(candidate)
+        return tiers
+    tiers["source"] = "(built-in default)"
+    return tiers
+
+
+DESTRUCTIVE_GIT_ALLOW_RE = re.compile(
+    r"(allow_destructive_git\s*:\s*true|git\s+push\s+--force|git\s+reset\s+--hard)",
+    re.IGNORECASE,
+)
+UNAUTH_COMMIT_ALLOW_RE = re.compile(
+    r"(allow_git_commit_without_authorization\s*:\s*true|commit without authorization)",
+    re.IGNORECASE,
+)
+UNAUTH_PUSH_ALLOW_RE = re.compile(
+    r"(allow_git_push_without_authorization\s*:\s*true|push without authorization)",
+    re.IGNORECASE,
+)
+UNAUTH_BRANCH_ALLOW_RE = re.compile(
+    r"(allow_branch_or_pr_without_authorization\s*:\s*true|branch without authorization|pr without authorization)",
+    re.IGNORECASE,
+)
+UNAUTH_SYSTEM_MUT_ALLOW_RE = re.compile(
+    r"(allow_system_mutation_without_authorization\s*:\s*true|system mutation without authorization)",
+    re.IGNORECASE,
+)
+SCOPE_OUTSIDE_ALLOW_RE = re.compile(
+    r"(allow_scope_outside_active_repo\s*:\s*true|outside active repo without authorization)",
+    re.IGNORECASE,
+)
+AUTH_GUARD_RE = re.compile(r"(explicit user intent|without authorization:\s*false|ask before)", re.IGNORECASE)
+SYSTEM_MUTATION_GUARD_RE = re.compile(
+    r"(allow_system_mutation_without_authorization\s*:\s*false|ask before .*system|system.*authorization)",
+    re.IGNORECASE,
+)
+WILDCARD_RE = re.compile(r"(\*\*\/\*|\ballow\s*:\s*\[\s*\"?\*\"?\s*\]|wildcard)", re.IGNORECASE)
+
+
+def _policy_surface_paths(repo_path: Path) -> list[Path]:
+    paths: list[Path] = []
+    for rel in (
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".claude/rules/agent-policy.md",
+        ".cursor/rules/agent-policy.mdc",
+    ):
+        p = repo_path / rel
+        if p.is_file():
+            paths.append(p)
+    return paths
+
+
+def parse_policy_effective_signals(repo_path: Path, lcd_policy: dict[str, Any]) -> dict[str, Any]:
+    allow = {key: False for key in lcd_policy["allow_flags"].keys()}
+    guards = {
+        "has_authorization_guard": False,
+        "has_system_mutation_guard": False,
+        "has_wildcard_pattern": False,
+    }
+    matched_sources: dict[str, list[str]] = {}
+
+    for path in _policy_surface_paths(repo_path):
+        text = read_text(path) or ""
+        src = display_path(path)
+
+        checks = [
+            ("allow_destructive_git", DESTRUCTIVE_GIT_ALLOW_RE),
+            ("allow_git_commit_without_authorization", UNAUTH_COMMIT_ALLOW_RE),
+            ("allow_git_push_without_authorization", UNAUTH_PUSH_ALLOW_RE),
+            ("allow_branch_or_pr_without_authorization", UNAUTH_BRANCH_ALLOW_RE),
+            ("allow_system_mutation_without_authorization", UNAUTH_SYSTEM_MUT_ALLOW_RE),
+            ("allow_scope_outside_active_repo", SCOPE_OUTSIDE_ALLOW_RE),
+        ]
+        for key, pattern in checks:
+            if pattern.search(text):
+                allow[key] = True
+                matched_sources.setdefault(key, []).append(src)
+
+        if AUTH_GUARD_RE.search(text):
+            guards["has_authorization_guard"] = True
+            matched_sources.setdefault("has_authorization_guard", []).append(src)
+        if SYSTEM_MUTATION_GUARD_RE.search(text):
+            guards["has_system_mutation_guard"] = True
+            matched_sources.setdefault("has_system_mutation_guard", []).append(src)
+        if WILDCARD_RE.search(text):
+            guards["has_wildcard_pattern"] = True
+            matched_sources.setdefault("has_wildcard_pattern", []).append(src)
+
+    violations = [
+        key
+        for key, value in allow.items()
+        if value != lcd_policy["allow_flags"].get(key, False)
+    ]
+    if guards["has_wildcard_pattern"]:
+        violations.append("has_wildcard_pattern")
+    if lcd_policy["required_guards"].get("authorization", True) and not guards["has_authorization_guard"]:
+        violations.append("missing_authorization_guard")
+    if (
+        lcd_policy["required_guards"].get("system_mutation_authorization", True)
+        and not guards["has_system_mutation_guard"]
+    ):
+        violations.append("missing_system_mutation_guard")
+
+    compliance = {
+        "lcd_compliant": len(violations) == 0,
+        "violations": violations,
+    }
+
+    return {
+        "allow_flags_effective": allow,
+        "guard_signals": guards,
+        "compliance": compliance,
+        "matched_policy_sources": matched_sources,
+    }
+
+
+def classify_tier(
+    path_display: str,
+    contract: dict[str, Any],
+    effective: dict[str, Any],
+    is_vault: bool,
+    is_external: bool,
+    tiers: dict[str, Any],
+) -> tuple[int | None, int | None, bool]:
+    if is_vault:
+        return None, None, False
+
+    anchors = tiers.get("anchors", {})
+    tier4 = set(anchors.get("tier_4", []))
+    tier3 = set(anchors.get("tier_3", []))
+
+    if path_display in tier4:
+        current = 4
+    elif path_display in tier3:
+        current = 3
+    else:
+        std = tiers.get("tier_2_standard", {})
+        required_false = std.get("required_false_allow_flags", [])
+        allow_flags = effective.get("allow_flags_effective", {})
+        guards = effective.get("guard_signals", {})
+        tier2_ready = (
+            contract.get("policy_stack_depth", 0) >= int(std.get("min_policy_stack_depth", 2))
+            and (not std.get("require_authorization_guard", True) or guards.get("has_authorization_guard", False))
+            and (
+                not std.get("require_system_mutation_guard", True)
+                or guards.get("has_system_mutation_guard", False)
+            )
+            and (not std.get("forbid_wildcard_pattern", True) or not guards.get("has_wildcard_pattern", False))
+            and all(not allow_flags.get(flag, False) for flag in required_false if isinstance(flag, str))
+        )
+        current = 2 if tier2_ready else 1
+
+    targets = tiers.get("targets", {})
+    if current == 4:
+        target = int(targets.get("tier_4", 4))
+    elif current == 3:
+        target = int(targets.get("tier_3", 3))
+    else:
+        target = int(targets.get("default_minimum", 2))
+
+    if is_external:
+        target = min(target, current)
+
+    return current, target, current < target
+
+
+def build_matrix_json(data: dict[str, Any]) -> dict[str, Any]:
+    strict_repos = parse_strict_repos()
+    lcd_policy = load_lcd_policy()
+    tiers_policy = load_policy_tiers()
+    rows: list[dict[str, Any]] = []
+    actions: list[dict[str, Any]] = []
+    entries = list(data.get("repos", [])) + list(data.get("vaults", []))
+
+    for entry in entries:
+        repo_path = expand_display_path(entry["path"])
+        repo_key = str(repo_path)
+        is_vault = bool(entry.get("is_vault"))
+        expected_agent_mode = "n/a" if is_vault else ("strict" if repo_key in strict_repos else "lax")
+        agent_policy_mode = read_managed_policy_mode(repo_path / "AGENTS.md")
+        env_policy = infer_env_policy(repo_path)
+        is_external = repo_path.is_relative_to(HOME / "code" / "External")
+        contract = collect_repo_contract_signals(repo_path) if not is_vault else {
+            "has_commit_guidelines": False,
+            "has_pr_guidelines": False,
+            "has_git_guides": False,
+            "has_roadmap_conventions": False,
+            "has_memory_surface": False,
+            "has_skills_surface": False,
+            "has_docs_contract": False,
+            "policy_stack_depth": 0,
+            "matched_files": {},
+        }
+        effective = parse_policy_effective_signals(repo_path, lcd_policy) if not is_vault else {
+            "allow_flags_effective": dict(lcd_policy["allow_flags"]),
+            "guard_signals": {
+                "has_authorization_guard": False,
+                "has_system_mutation_guard": False,
+                "has_wildcard_pattern": False,
+            },
+            "compliance": {"lcd_compliant": True, "violations": []},
+            "matched_policy_sources": {},
+        }
+        drift = False if is_vault else agent_policy_mode not in {"missing", expected_agent_mode}
+        if is_vault or is_external:
+            sync_mode = "hands_off"
+        elif contract["policy_stack_depth"] >= 3 or any(
+            (
+                contract["has_commit_guidelines"],
+                contract["has_pr_guidelines"],
+                contract["has_roadmap_conventions"],
+                contract["has_memory_surface"],
+                contract["has_skills_surface"],
+            )
+        ):
+            sync_mode = "baseline_plus_repo_contract"
+        else:
+            sync_mode = "baseline_only"
+
+        reconcile_action = f"dev agent sync --repo {repo_path}" if (drift and not is_vault) else None
+        tier_current, tier_target, tier_revamp_required = classify_tier(
+            entry["path"], contract, effective, is_vault, is_external, tiers_policy
+        )
+        revert_action = None
+        git_info = entry.get("git") or {}
+        if git_info.get("is_git_repo") and not is_vault:
+            revert_action = (
+                f"git -C {repo_path} restore AGENTS.md CLAUDE.md "
+                ".claude/rules/agent-policy.md .cursor/rules/agent-policy.mdc"
+            )
+
+        row = {
+            "path": entry["path"],
+            "is_vault": is_vault,
+            "is_external": is_external,
+            "git_branch": git_info.get("current_branch"),
+            "allowlist_mode": "strict" if (not is_vault and repo_key in strict_repos) else ("n/a" if is_vault else "lax"),
+            "expected_agent_mode": expected_agent_mode,
+            "agent_policy_mode": agent_policy_mode,
+            "agent_policy_drift": drift,
+            "policy_floor_mode": expected_agent_mode,
+            "policy_stack_depth": contract["policy_stack_depth"],
+            "sync_mode": sync_mode,
+            "has_commit_guidelines": contract["has_commit_guidelines"],
+            "has_pr_guidelines": contract["has_pr_guidelines"],
+            "has_git_guides": contract["has_git_guides"],
+            "has_roadmap_conventions": contract["has_roadmap_conventions"],
+            "has_memory_surface": contract["has_memory_surface"],
+            "has_skills_surface": contract["has_skills_surface"],
+            "has_docs_contract": contract["has_docs_contract"],
+            "matched_contract_files": contract["matched_files"],
+            "allow_flags_effective": effective["allow_flags_effective"],
+            "guard_signals": effective["guard_signals"],
+            "lcd_compliant": effective["compliance"]["lcd_compliant"],
+            "lcd_violations": effective["compliance"]["violations"],
+            "matched_policy_sources": effective["matched_policy_sources"],
+            "tier_current": tier_current,
+            "tier_target": tier_target,
+            "tier_revamp_required": tier_revamp_required,
+            "env_source_up": env_policy["source_up"],
+            "env_profiles_explicit": env_policy["profiles_explicit"],
+            "env_profiles_effective": env_policy["profiles_effective"],
+            "env_policy_note": env_policy["policy_note"],
+            "risk_count": len(entry.get("risks") or []),
+            "reconcile_action": reconcile_action,
+            "revert_action": revert_action,
+        }
+        rows.append(row)
+
+        if drift and not entry.get("is_vault"):
+            actions.append(
+                {
+                    "type": "reconcile-agent-policy",
+                    "path": entry["path"],
+                    "command": reconcile_action,
+                    "expected_mode": expected_agent_mode,
+                    "observed_mode": agent_policy_mode,
+                    "revert_command": revert_action,
+                }
+            )
+        if (not is_vault) and effective["compliance"]["violations"]:
+            actions.append(
+                {
+                    "type": "tighten-policy-lcd",
+                    "path": entry["path"],
+                    "command": f"dev agent sync --repo {repo_path}",
+                    "violations": effective["compliance"]["violations"],
+                    "revert_command": revert_action,
+                }
+            )
+        if (not is_vault) and tier_revamp_required:
+            actions.append(
+                {
+                    "type": "tier-revamp",
+                    "path": entry["path"],
+                    "command": f"dev agent sync --repo {repo_path}",
+                    "tier_current": tier_current,
+                    "tier_target": tier_target,
+                    "revert_command": revert_action,
+                }
+            )
+
+    rows.sort(key=lambda item: item["path"])
+    actions.sort(key=lambda item: item["path"])
+    lcd_non_compliant = [row["path"] for row in rows if (not row["is_vault"]) and not row["lcd_compliant"]]
+    tier_counts: dict[str, int] = {}
+    for row in rows:
+        t = row.get("tier_current")
+        if t is None:
+            continue
+        key = f"tier_{t}"
+        tier_counts[key] = tier_counts.get(key, 0) + 1
+    tier_revamp_paths = [row["path"] for row in rows if row.get("tier_revamp_required")]
+    return {
+        "schema_version": "v3",
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "desired_policy_lcd": lcd_policy,
+        "desired_policy_tiers": tiers_policy,
+        "lcd_non_compliant_count": len(lcd_non_compliant),
+        "lcd_non_compliant_paths": lcd_non_compliant,
+        "tier_counts": tier_counts,
+        "tier_revamp_count": len(tier_revamp_paths),
+        "tier_revamp_paths": tier_revamp_paths,
+        "row_count": len(rows),
+        "rows": rows,
+        "actions": actions,
+    }
+
+
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     try:
@@ -1629,10 +2221,30 @@ def main(argv: list[str]) -> int:
         cursor_sqlite=args.cursor_sqlite,
         vault_root=vault_root,
     )
-    markdown = render_markdown(data)
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(markdown, encoding="utf-8")
-    print(display_path(OUTPUT_PATH))
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.format == "markdown":
+        markdown = render_markdown(data)
+        OUTPUT_PATH.write_text(markdown, encoding="utf-8")
+        print(display_path(OUTPUT_PATH))
+        return 0
+
+    payload = {
+        "schema_version": "v1",
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "state": data,
+    }
+    if args.format == "json":
+        OUTPUT_JSON_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(display_path(OUTPUT_JSON_PATH))
+        return 0
+
+    matrix = build_matrix_json(data)
+    OUTPUT_MATRIX_JSON_PATH.write_text(
+        json.dumps(matrix, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(display_path(OUTPUT_MATRIX_JSON_PATH))
     return 0
 
 

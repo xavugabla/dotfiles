@@ -14,7 +14,11 @@ setopt APPEND_HISTORY
 
 # Path
 typeset -U path
-path=("$HOME/.local/share/mise/shims" "$HOME/.local/bin" "$HOME/bin" $path)
+if [[ "${XAVUGA_MISE_STARTUP:-0}" == "1" ]]; then
+    path=("$HOME/.local/share/mise/shims" "$HOME/.local/bin" "$HOME/bin" $path)
+else
+    path=("$HOME/.local/bin" "$HOME/bin" $path)
+fi
 
 # Aliases
 alias ll='ls -alF'
@@ -53,7 +57,7 @@ fi
 
 # mise is the managed Node/toolchain entry point. Keep it after pyenv init so
 # its shims remain ahead of legacy managers and editor-bundled runtimes.
-if (( $+commands[mise] )); then
+if [[ "${XAVUGA_MISE_STARTUP:-0}" == "1" ]] && (( $+commands[mise] )); then
     eval "$(mise activate zsh)"
 fi
 

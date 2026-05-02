@@ -8,6 +8,11 @@ Policy model:
 - Lax defaults at `~/code/AGENTS.md`.
 - Strict repo-specific policy only for paths listed in
   `~/.config/dev/agent-strict-repos.txt`.
+- LCD (lowest common denominator) policy is canonicalized in
+  `~/.config/dev/policy-lcd.json` (source template:
+  `private_dot_config/private_dev/policy-lcd.json`).
+- Tier model is canonicalized in `~/.config/dev/policy-tiers.json` (source template:
+  `private_dot_config/private_dev/policy-tiers.json`).
 
 ## Core Guardrails
 
@@ -20,18 +25,66 @@ Policy model:
   CI/cloud secret stores, and service `EnvironmentFile=` files.
 - Prefer a plan-first approach when a task has architecture trade-offs.
 
+## LCD Vocabulary (Machine Standard)
+
+The following keys are standardized and must be interpreted consistently:
+
+- `allow_destructive_git`
+- `allow_system_mutation_without_authorization`
+- `allow_git_commit_without_authorization`
+- `allow_git_push_without_authorization`
+- `allow_branch_or_pr_without_authorization`
+- `allow_scope_outside_active_repo`
+
+Required guard signals:
+
+- `authorization` (human approval/intent guard must be present)
+- `system_mutation_authorization` (system-level changes require authorization)
+
+`dev visibility report --format matrix-json` uses this LCD spec as the desired
+state and reports per-repo compliance (`lcd_compliant`, `lcd_violations`).
+
+## Tier Vocabulary (Machine Standard)
+
+Tier intent:
+
+- Tier 4: strict anchor for full-depth governance (`elo-backend-dev`).
+- Tier 3: strict anchor for complete-but-lighter governance (`dc_platform`).
+- Tier 2: new minimum acceptable standard.
+- Tier 1: lowest current baseline, revamp required.
+
+`dev visibility report --format matrix-json` reports:
+
+- `tier_current`
+- `tier_target`
+- `tier_revamp_required`
+- global summary (`tier_counts`, `tier_revamp_count`, `tier_revamp_paths`)
+
 ## Canonical Managed Blocks
 
 Default lax block synchronized at `~/code/AGENTS.md`:
 
 ```md
 <!-- dev-agent-policy:start -->
-## Managed Agent Policy (Default Lax)
-- Scope: default to the active repo/path under `~/code`; avoid unrelated trees unless asked.
-- Workflow: keep momentum on straightforward tasks and ask only when uncertainty is material.
-- Git: commits/pushes/branches/PRs require explicit user intent; avoid destructive git unless explicitly requested.
-- Secrets: never add plaintext secrets; prefer env references and approved secret stores.
-- Validation: run lightweight checks relevant to modified files and report blockers clearly.
+## Managed Agent Policy (Lax Safe Default)
+
+Policy profile: `lax_safe_v1`
+
+Capability flags:
+- `allow_scope_outside_active_repo`: false
+- `allow_destructive_git`: false
+- `allow_git_commit_without_authorization`: false
+- `allow_git_push_without_authorization`: false
+- `allow_branch_or_pr_without_authorization`: false
+- `allow_system_mutation_without_authorization`: false
+- `allow_security_policy_changes_without_authorization`: false
+- `allow_plaintext_secret_writes`: false
+- `allow_network_side_effects_without_authorization`: false
+
+Execution defaults:
+- Collaboration mode: lax (keep momentum, ask only when uncertainty is material).
+- Scope: active repo/path under `~/code` unless the user explicitly expands scope.
+- Validation: run lightweight targeted checks for changed files and report blockers.
 <!-- dev-agent-policy:end -->
 ```
 
@@ -40,11 +93,19 @@ Strict override block for selected repos:
 ```md
 <!-- dev-agent-policy:start -->
 ## Managed Agent Policy (Strict Override)
-- Scope: modify only files required by the task and avoid broad refactors unless requested.
-- Approval: ask before changing architecture, policies, CI/security settings, or cross-repo dependencies.
-- Git: never commit/push/branch/rebase/reset/force without explicit user intent in this chat.
-- Secrets: no plaintext secrets, no token pasting, no secret exfiltration paths.
-- Validation: run strongest available targeted checks for changed files before completion.
+- Policy profile: `strict_safe_v1`
+- `allow_scope_outside_active_repo`: false
+- `allow_destructive_git`: false
+- `allow_git_commit_without_authorization`: false
+- `allow_git_push_without_authorization`: false
+- `allow_branch_or_pr_without_authorization`: false
+- `allow_system_mutation_without_authorization`: false
+- `allow_security_policy_changes_without_authorization`: false
+- `allow_plaintext_secret_writes`: false
+- `allow_network_side_effects_without_authorization`: false
+- Scope: modify only task-required files; avoid broad refactors unless requested.
+- Approval: ask before architecture/policy/CI/security/cross-repo changes.
+- Validation: run strongest targeted checks available for changed files.
 <!-- dev-agent-policy:end -->
 ```
 

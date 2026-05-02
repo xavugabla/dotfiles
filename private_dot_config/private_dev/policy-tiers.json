@@ -1,0 +1,31 @@
+{
+  "schema_version": "v1",
+  "profile": "agent_tiers_v1",
+  "anchors": {
+    "tier_4": [
+      "~/code/daisychain/elo-backend-dev"
+    ],
+    "tier_3": [
+      "~/code/daisychain/dc_platform"
+    ]
+  },
+  "tier_2_standard": {
+    "min_policy_stack_depth": 2,
+    "require_authorization_guard": true,
+    "require_system_mutation_guard": true,
+    "forbid_wildcard_pattern": true,
+    "required_false_allow_flags": [
+      "allow_destructive_git",
+      "allow_system_mutation_without_authorization",
+      "allow_git_commit_without_authorization",
+      "allow_git_push_without_authorization",
+      "allow_branch_or_pr_without_authorization",
+      "allow_scope_outside_active_repo"
+    ]
+  },
+  "targets": {
+    "tier_4": 4,
+    "tier_3": 3,
+    "default_minimum": 2
+  }
+}

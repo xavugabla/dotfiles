@@ -11,6 +11,7 @@ Model:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -36,21 +37,42 @@ alwaysApply: true
 ---"""
 
 LAX_BLOCK = """<!-- dev-agent-policy:start -->
-## Managed Agent Policy (Default Lax)
-- Scope: default to the active repo/path under `~/code`; avoid unrelated trees unless asked.
-- Workflow: keep momentum on straightforward tasks and ask only when uncertainty is material.
-- Git: commits/pushes/branches/PRs require explicit user intent; avoid destructive git unless explicitly requested.
-- Secrets: never add plaintext secrets; prefer env references and approved secret stores.
-- Validation: run lightweight checks relevant to modified files and report blockers clearly.
+## Managed Agent Policy (Lax Safe Default)
+
+Policy profile: `lax_safe_v1`
+
+Capability flags:
+- `allow_scope_outside_active_repo`: false
+- `allow_destructive_git`: false
+- `allow_git_commit_without_authorization`: false
+- `allow_git_push_without_authorization`: false
+- `allow_branch_or_pr_without_authorization`: false
+- `allow_system_mutation_without_authorization`: false
+- `allow_security_policy_changes_without_authorization`: false
+- `allow_plaintext_secret_writes`: false
+- `allow_network_side_effects_without_authorization`: false
+
+Execution defaults:
+- Collaboration mode: lax (keep momentum, ask only when uncertainty is material).
+- Scope: active repo/path under `~/code` unless the user explicitly expands scope.
+- Validation: run lightweight targeted checks for changed files and report blockers.
 <!-- dev-agent-policy:end -->"""
 
 STRICT_BLOCK = """<!-- dev-agent-policy:start -->
 ## Managed Agent Policy (Strict Override)
-- Scope: modify only files required by the task and avoid broad refactors unless requested.
-- Approval: ask before changing architecture, policies, CI/security settings, or cross-repo dependencies.
-- Git: never commit/push/branch/rebase/reset/force without explicit user intent in this chat.
-- Secrets: no plaintext secrets, no token pasting, no secret exfiltration paths.
-- Validation: run strongest available targeted checks for changed files before completion.
+- Policy profile: `strict_safe_v1`
+- `allow_scope_outside_active_repo`: false
+- `allow_destructive_git`: false
+- `allow_git_commit_without_authorization`: false
+- `allow_git_push_without_authorization`: false
+- `allow_branch_or_pr_without_authorization`: false
+- `allow_system_mutation_without_authorization`: false
+- `allow_security_policy_changes_without_authorization`: false
+- `allow_plaintext_secret_writes`: false
+- `allow_network_side_effects_without_authorization`: false
+- Scope: modify only task-required files; avoid broad refactors unless requested.
+- Approval: ask before architecture/policy/CI/security/cross-repo changes.
+- Validation: run strongest targeted checks available for changed files.
 <!-- dev-agent-policy:end -->"""
 
 SURFACES = (
@@ -101,6 +123,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--all-repos",
         action="store_true",
         help="apply policy to all discovered repos (strict repos get strict block)",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="output format (default: text)",
     )
     return parser.parse_args(argv)
 
@@ -263,7 +291,13 @@ def build_targets(strict_repos: list[Path], all_repos: bool) -> list[Target]:
     return targets
 
 
-def run(mode: str, strict_repos: list[Path], bootstrap: bool, all_repos: bool) -> int:
+def run(
+    mode: str,
+    strict_repos: list[Path],
+    bootstrap: bool,
+    all_repos: bool,
+    output_format: str,
+) -> int:
     targets = build_targets(strict_repos, all_repos)
     results = [sync_target(target, mode, bootstrap) for target in targets]
 
@@ -271,14 +305,52 @@ def run(mode: str, strict_repos: list[Path], bootstrap: bool, all_repos: bool) -
     changed = [r for r in results if r.action in changed_actions]
     drift = [r for r in results if r.action in {"drift", "no-managed-block"}]
 
-    for result in results:
-        print(f"{result.target.kind}:{result.target.path} -> {result.action}")
+    if output_format == "json":
+        def repo_root_for(path: Path) -> Path:
+            candidate = path if path.is_dir() else path.parent
+            for parent in [candidate, *candidate.parents]:
+                if (parent / ".git").is_dir():
+                    return parent
+            return candidate
 
-    print(
-        f"\nsummary mode={mode} targets={len(targets)} "
-        f"strict_repos={len(strict_repos)} all_repos={all_repos} "
-        f"changed={len(changed)} drift={len(drift)}"
-    )
+        payload = {
+            "mode": mode,
+            "targets": len(targets),
+            "strict_repos": len(strict_repos),
+            "all_repos": all_repos,
+            "changed": len(changed),
+            "drift": len(drift),
+            "results": [
+                {
+                    "kind": r.target.kind,
+                    "path": str(r.target.path),
+                    "action": r.action,
+                }
+                for r in results
+            ],
+            "actions": [
+                {
+                    "type": "reconcile-agent-policy",
+                    "path": str(r.target.path),
+                    "command": (
+                        "dev agent sync --all-repos"
+                        if all_repos
+                        else f"dev agent sync --repo {repo_root_for(r.target.path)}"
+                    ),
+                }
+                for r in drift
+            ],
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        for result in results:
+            print(f"{result.target.kind}:{result.target.path} -> {result.action}")
+
+        print(
+            f"\nsummary mode={mode} targets={len(targets)} "
+            f"strict_repos={len(strict_repos)} all_repos={all_repos} "
+            f"changed={len(changed)} drift={len(drift)}"
+        )
 
     if mode == "audit" and drift:
         return 2
@@ -294,7 +366,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     strict_repos = explicit_repos or parse_strict_repo_file()
-    return run(args.mode, strict_repos, args.bootstrap, args.all_repos)
+    return run(args.mode, strict_repos, args.bootstrap, args.all_repos, args.format)
 
 
 if __name__ == "__main__":
