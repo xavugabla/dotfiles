@@ -929,6 +929,124 @@ reports_export() {
   fi
   [ -f "$strict_repos_src" ] && cp "$strict_repos_src" "$config_dir/agent-strict-repos.txt"
 
+  python3 - <<'PY' "$config_dir/policy-lcd.json" "$config_dir/policy-tiers.json" "$config_dir/agent-strict-repos.txt" "$config_dir"
+import json
+import sys
+from pathlib import Path
+
+lcd_path, tiers_path, strict_path, config_dir = map(Path, sys.argv[1:])
+config_dir.mkdir(parents=True, exist_ok=True)
+
+
+def load_json(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def write(path: Path, lines: list[str]) -> None:
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+lcd = load_json(lcd_path)
+tiers = load_json(tiers_path)
+
+strict_repos: list[str] = []
+if strict_path.is_file():
+    for raw in strict_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            strict_repos.append(line)
+
+lcd_lines = [
+    "# Policy LCD (Mirror)",
+    "",
+    "Machine-source mirror for the minimum policy floor used by matrix compliance.",
+    "",
+    f"- Profile: `{lcd.get('profile', 'unknown')}`",
+    f"- Schema: `{lcd.get('schema_version', 'unknown')}`",
+    "",
+    "## Allow Flags",
+]
+for key, value in sorted((lcd.get("allow_flags") or {}).items()):
+    lcd_lines.append(f"- `{key}`: `{str(value).lower()}`")
+lcd_lines.extend(["", "## Required Guards"])
+for key, value in sorted((lcd.get("required_guards") or {}).items()):
+    lcd_lines.append(f"- `{key}`: `{str(value).lower()}`")
+lcd_lines.extend(["", "## Source JSON", "", "```json", json.dumps(lcd, indent=2, sort_keys=True), "```"])
+write(config_dir / "policy-lcd.md", lcd_lines)
+
+tiers_lines = [
+    "# Policy Tiers (Mirror)",
+    "",
+    "Machine-source mirror for tier classification and target posture.",
+    "",
+    f"- Profile: `{tiers.get('profile', 'unknown')}`",
+    f"- Schema: `{tiers.get('schema_version', 'unknown')}`",
+    "",
+    "## Anchors",
+]
+anchors = tiers.get("anchors") or {}
+for tier_name in ("tier_4", "tier_3"):
+    repos = anchors.get(tier_name) or []
+    if repos:
+        tiers_lines.append(f"- `{tier_name}`:")
+        for repo in repos:
+            tiers_lines.append(f"  - `{repo}`")
+    else:
+        tiers_lines.append(f"- `{tier_name}`: (none)")
+
+tier2 = tiers.get("tier_2_standard") or {}
+tiers_lines.extend(["", "## Tier 2 Standard"])
+for key, value in tier2.items():
+    if isinstance(value, list):
+        tiers_lines.append(f"- `{key}`:")
+        for item in value:
+            tiers_lines.append(f"  - `{item}`")
+    else:
+        tiers_lines.append(f"- `{key}`: `{value}`")
+
+tiers_lines.extend(["", "## Targets"])
+for key, value in sorted((tiers.get("targets") or {}).items()):
+    tiers_lines.append(f"- `{key}`: `{value}`")
+
+tiers_lines.extend(["", "## Source JSON", "", "```json", json.dumps(tiers, indent=2, sort_keys=True), "```"])
+write(config_dir / "policy-tiers.md", tiers_lines)
+
+strict_lines = [
+    "# Strict Repos (Mirror)",
+    "",
+    "Strict override repo allowlist mirrored from `agent-strict-repos.txt`.",
+    "",
+]
+if strict_repos:
+    for repo in strict_repos:
+        strict_lines.append(f"- `{repo}`")
+else:
+    strict_lines.append("- (none)")
+write(config_dir / "agent-strict-repos.md", strict_lines)
+
+readme_lines = [
+    "# Config Mirrors",
+    "",
+    "This directory stores canonical machine configs and generated markdown companions.",
+    "",
+    "## Canonical Sources",
+    "- `policy-lcd.json`",
+    "- `policy-tiers.json`",
+    "- `agent-strict-repos.txt`",
+    "",
+    "## Human Mirrors",
+    "- `policy-lcd.md`",
+    "- `policy-tiers.md`",
+    "- `agent-strict-repos.md`",
+]
+write(config_dir / "README.md", readme_lines)
+PY
+
   python3 - <<'PY' "$CHEZMOI_SOURCE_DIR/private_dot_config/private_dev/docs" "$docs_dir"
 import shutil
 import sys

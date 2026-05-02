@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Managed by chezmoi.
+#
+# strict_env treats unset variables as errors. Seed commonly-appended vars with
+# empty defaults so legacy .envrc patterns like "${PYTHONPATH}" do not fail.
+
+if [[ -z "${PYTHONPATH+x}" ]]; then
+  export PYTHONPATH=""
+fi

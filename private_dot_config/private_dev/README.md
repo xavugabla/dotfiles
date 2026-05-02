@@ -34,6 +34,9 @@ Workflow:
   ```
 
   Keep `.envrc`, `.env.local`, and `.envrc.local` gitignored unless a project has an intentional checked-in, non-secret `.envrc`.
+  Global direnv guardrails are managed in `~/.config/direnv/direnvrc` (chezmoi source:
+  `private_dot_config/direnv/direnvrc`) to keep strict mode compatible with
+  legacy `PYTHONPATH` append patterns.
 - Set local env files to mode `600`. Check with `dev env doctor [repo-or-path]` or `dev secrets check [repo-or-path|service]`.
 - Use `EnvironmentFile=` for long-running user services; do not call `op inject` from service startup.
 - Run `./install-apt.sh` for privileged Linux baseline packages. Add `--with-1password` only when that Linux machine should install the 1Password app/CLI packages.
